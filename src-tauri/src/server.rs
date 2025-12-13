@@ -6,6 +6,8 @@ use crate::converter::anthropic_to_openai::convert_anthropic_to_openai;
 use crate::providers::kiro::KiroProvider;
 use crate::providers::gemini::GeminiProvider;
 use crate::providers::qwen::QwenProvider;
+use crate::providers::openai_custom::OpenAICustomProvider;
+use crate::providers::claude_custom::ClaudeCustomProvider;
 use crate::logger::LogStore;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -35,6 +37,8 @@ pub struct ServerState {
     pub kiro_provider: KiroProvider,
     pub gemini_provider: GeminiProvider,
     pub qwen_provider: QwenProvider,
+    pub openai_custom_provider: OpenAICustomProvider,
+    pub claude_custom_provider: ClaudeCustomProvider,
     shutdown_tx: Option<oneshot::Sender<()>>,
 }
 
@@ -49,6 +53,9 @@ impl ServerState {
         let mut qwen = QwenProvider::new();
         let _ = qwen.load_credentials();
         
+        let openai_custom = OpenAICustomProvider::new();
+        let claude_custom = ClaudeCustomProvider::new();
+        
         Self {
             config,
             running: false,
@@ -57,6 +64,8 @@ impl ServerState {
             kiro_provider: kiro,
             gemini_provider: gemini,
             qwen_provider: qwen,
+            openai_custom_provider: openai_custom,
+            claude_custom_provider: claude_custom,
             shutdown_tx: None,
         }
     }

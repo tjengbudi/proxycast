@@ -217,3 +217,52 @@ export async function getQwenTokenFileHash(): Promise<string> {
 export async function checkAndReloadQwenCredentials(lastHash: string): Promise<CheckResult> {
   return invoke("check_and_reload_qwen_credentials", { last_hash: lastHash });
 }
+
+
+// ============ OpenAI Custom Provider ============
+
+export interface OpenAICustomStatus {
+  enabled: boolean;
+  has_api_key: boolean;
+  base_url: string;
+}
+
+export async function getOpenAICustomStatus(): Promise<OpenAICustomStatus> {
+  return invoke("get_openai_custom_status");
+}
+
+export async function setOpenAICustomConfig(
+  apiKey: string | null,
+  baseUrl: string | null,
+  enabled: boolean
+): Promise<string> {
+  return invoke("set_openai_custom_config", { 
+    api_key: apiKey, 
+    base_url: baseUrl, 
+    enabled 
+  });
+}
+
+// ============ Claude Custom Provider ============
+
+export interface ClaudeCustomStatus {
+  enabled: boolean;
+  has_api_key: boolean;
+  base_url: string;
+}
+
+export async function getClaudeCustomStatus(): Promise<ClaudeCustomStatus> {
+  return invoke("get_claude_custom_status");
+}
+
+export async function setClaudeCustomConfig(
+  apiKey: string | null,
+  baseUrl: string | null,
+  enabled: boolean
+): Promise<string> {
+  return invoke("set_claude_custom_config", { 
+    api_key: apiKey, 
+    base_url: baseUrl, 
+    enabled 
+  });
+}
