@@ -792,39 +792,87 @@ async fn check_api_compatibility(
 ) -> Result<ApiCompatibilityResult, String> {
     logs.write().await.add(
         "info",
-        &format!("[API检测] 开始检测 {provider} API 兼容性..."),
+        &format!("[API检测] 开始检测 {provider} API 兼容性 (Claude Code 功能测试)..."),
     );
 
     let s = state.read().await;
     let mut results: Vec<ApiCheckResult> = Vec::new();
     let mut warnings: Vec<String> = Vec::new();
 
-    let models_to_check = match provider.as_str() {
-        "kiro" => vec!["claude-sonnet-4-5", "claude-3-7-sonnet-20250219"],
-        "gemini" => vec!["gemini-2.5-flash", "gemini-2.5-pro"],
-        "qwen" => vec!["qwen3-coder-plus", "qwen3-coder-flash"],
+    // Claude Code 需要的测试项目
+    let test_cases: Vec<(&str, &str)> = match provider.as_str() {
+        "kiro" => vec![
+            ("claude-sonnet-4-5", "basic"),     // 基础对话
+            ("claude-sonnet-4-5", "tool_call"), // Tool Calls 支持
+        ],
+        "gemini" => vec![("gemini-2.5-flash", "basic"), ("gemini-2.5-pro", "basic")],
+        "qwen" => vec![
+            ("qwen3-coder-plus", "basic"),
+            ("qwen3-coder-flash", "basic"),
+        ],
         _ => vec![],
     };
 
-    for model in models_to_check {
+    for (model, test_type) in test_cases {
         let start = std::time::Instant::now();
+        let test_name = format!("{model} ({test_type})");
 
-        // 构建简单的测试请求
-        let test_request = crate::models::openai::ChatCompletionRequest {
-            model: model.to_string(),
-            messages: vec![crate::models::openai::ChatMessage {
-                role: "user".to_string(),
-                content: Some(crate::models::openai::MessageContent::Text(
-                    "Hi".to_string(),
-                )),
-                tool_calls: None,
-                tool_call_id: None,
-            }],
-            temperature: None,
-            max_tokens: Some(10),
-            stream: false,
-            tools: None,
-            tool_choice: None,
+        // 根据测试类型构建不同的请求
+        let test_request = match test_type {
+            "tool_call" => {
+                // 测试 Tool Calls - Claude Code 核心功能
+                crate::models::openai::ChatCompletionRequest {
+                    model: model.to_string(),
+                    messages: vec![crate::models::openai::ChatMessage {
+                        role: "user".to_string(),
+                        content: Some(crate::models::openai::MessageContent::Text(
+                            "What is 2+2? Use the calculator tool to compute this.".to_string(),
+                        )),
+                        tool_calls: None,
+                        tool_call_id: None,
+                    }],
+                    temperature: None,
+                    max_tokens: Some(100),
+                    stream: false,
+                    tools: Some(vec![crate::models::openai::Tool {
+                        tool_type: "function".to_string(),
+                        function: crate::models::openai::FunctionDef {
+                            name: "calculator".to_string(),
+                            description: Some("Perform basic arithmetic calculations".to_string()),
+                            parameters: Some(serde_json::json!({
+                                "type": "object",
+                                "properties": {
+                                    "expression": {
+                                        "type": "string",
+                                        "description": "The math expression to evaluate"
+                                    }
+                                },
+                                "required": ["expression"]
+                            })),
+                        },
+                    }]),
+                    tool_choice: None,
+                }
+            }
+            _ => {
+                // 基础对话测试
+                crate::models::openai::ChatCompletionRequest {
+                    model: model.to_string(),
+                    messages: vec![crate::models::openai::ChatMessage {
+                        role: "user".to_string(),
+                        content: Some(crate::models::openai::MessageContent::Text(
+                            "Say 'OK' only.".to_string(),
+                        )),
+                        tool_calls: None,
+                        tool_call_id: None,
+                    }],
+                    temperature: None,
+                    max_tokens: Some(10),
+                    stream: false,
+                    tools: None,
+                    tool_choice: None,
+                }
+            }
         };
 
         let result = match provider.as_str() {
@@ -840,33 +888,43 @@ async fn check_api_compatibility(
                 let body = resp.text().await.unwrap_or_default();
 
                 let (available, error_type, error_message) = if (200..300).contains(&status) {
+                    // 对于 tool_call 测试，额外检查响应是否包含 tool use
+                    if test_type == "tool_call" {
+                        let has_tool_use =
+                            body.contains("\"name\"") && body.contains("\"toolUseId\"");
+                        if !has_tool_use {
+                            warnings.push(format!(
+                                "{test_name}: 响应未包含 tool_use，Claude Code 可能无法正常工作"
+                            ));
+                        }
+                    }
                     (true, None, None)
                 } else {
                     let err_type = match status {
                         401 => {
-                            warnings.push(format!("模型 {model} 返回 401: Token 可能已过期或无效"));
+                            warnings.push(format!("{test_name} 返回 401: Token 可能已过期或无效"));
                             Some("AUTH_ERROR".to_string())
                         }
                         403 => {
                             warnings.push(format!(
-                                "模型 {model} 返回 403: 无权访问，可能需要刷新 Token"
+                                "{test_name} 返回 403: 无权访问，可能需要刷新 Token"
                             ));
                             Some("FORBIDDEN".to_string())
                         }
                         400 => {
-                            warnings.push(format!("模型 {model} 返回 400: 请求格式可能已变更"));
+                            warnings.push(format!("{test_name} 返回 400: 请求格式可能已变更"));
                             Some("BAD_REQUEST".to_string())
                         }
                         404 => {
-                            warnings.push(format!("模型 {model} 返回 404: 模型或接口可能已下线"));
+                            warnings.push(format!("{test_name} 返回 404: 模型或接口可能已下线"));
                             Some("NOT_FOUND".to_string())
                         }
                         429 => {
-                            warnings.push(format!("模型 {model} 返回 429: 请求过于频繁"));
+                            warnings.push(format!("{test_name} 返回 429: 请求过于频繁"));
                             Some("RATE_LIMITED".to_string())
                         }
                         500..=599 => {
-                            warnings.push(format!("模型 {model} 返回 {status}: 服务端错误"));
+                            warnings.push(format!("{test_name} 返回 {status}: 服务端错误"));
                             Some("SERVER_ERROR".to_string())
                         }
                         _ => Some("UNKNOWN_ERROR".to_string()),
@@ -879,7 +937,7 @@ async fn check_api_compatibility(
                 };
 
                 results.push(ApiCheckResult {
-                    model: model.to_string(),
+                    model: test_name,
                     available,
                     status,
                     error_type,
@@ -888,9 +946,9 @@ async fn check_api_compatibility(
                 });
             }
             Err(e) => {
-                warnings.push(format!("模型 {model} 请求失败: {e}"));
+                warnings.push(format!("{test_name} 请求失败: {e}"));
                 results.push(ApiCheckResult {
-                    model: model.to_string(),
+                    model: test_name,
                     available: false,
                     status: 0,
                     error_type: Some("REQUEST_FAILED".to_string()),

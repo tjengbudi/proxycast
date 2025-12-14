@@ -213,28 +213,36 @@ export function Settings() {
         </button>
       </div>
 
-      {/* API 兼容性检测 */}
+      {/* Claude Code 兼容性检测 */}
       <div className="max-w-2xl space-y-4 rounded-lg border bg-card p-6">
         <div className="flex items-center gap-2">
-          <Shield className="h-5 w-5" />
-          <h3 className="font-semibold">API 兼容性检测</h3>
+          <Shield className="h-5 w-5 text-purple-500" />
+          <h3 className="font-semibold">Claude Code 兼容性检测</h3>
         </div>
         <p className="text-sm text-muted-foreground">
-          检测当前配置的模型是否可用，识别 API 变更或认证问题
+          检测 API 是否支持 Claude Code 所需的功能：基础对话、Tool Calls 等
         </p>
+
+        <div className="rounded-lg bg-purple-50 p-3 text-sm">
+          <p className="font-medium text-purple-700">检测项目：</p>
+          <ul className="mt-1 list-inside list-disc text-purple-600">
+            <li>基础对话能力 (basic)</li>
+            <li>Tool Calls 支持 (tool_call) - Claude Code 核心功能</li>
+          </ul>
+        </div>
 
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => handleCheckApiCompatibility("kiro")}
             disabled={checking}
-            className="flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50"
+            className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
           >
             {checking ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <Shield className="h-4 w-4" />
             )}
-            检测 Kiro API
+            检测 Kiro (Claude Code)
           </button>
         </div>
 
@@ -259,9 +267,9 @@ export function Settings() {
               </span>
             </div>
 
-            {/* 模型检测结果 */}
+            {/* 检测结果 */}
             <div className="space-y-2">
-              <p className="text-sm font-medium">模型状态:</p>
+              <p className="text-sm font-medium">检测结果:</p>
               {checkResult.results.map((r) => (
                 <div
                   key={r.model}
@@ -275,7 +283,13 @@ export function Settings() {
                     ) : (
                       <XCircle className="h-4 w-4 text-red-500" />
                     )}
-                    <span>{r.model}</span>
+                    <span>
+                      {r.model.includes("tool_call") ? (
+                        <span className="font-medium text-purple-600">{r.model}</span>
+                      ) : (
+                        r.model
+                      )}
+                    </span>
                   </div>
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     {r.status > 0 && <span>HTTP {r.status}</span>}
