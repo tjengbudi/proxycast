@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   ExternalLink,
   RefreshCw,
   CheckCircle2,
   AlertCircle,
 } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 
 interface VersionInfo {
   current: string;
@@ -12,13 +13,36 @@ interface VersionInfo {
   hasUpdate: boolean;
 }
 
+interface ToolVersion {
+  name: string;
+  version: string | null;
+  installed: boolean;
+}
+
 export function AboutSection() {
   const [versionInfo] = useState<VersionInfo>({
-    current: "0.4.3",
+    current: "0.7.0",
     latest: undefined,
     hasUpdate: false,
   });
   const [checking, setChecking] = useState(false);
+  const [toolVersions, setToolVersions] = useState<ToolVersion[]>([]);
+  const [loadingTools, setLoadingTools] = useState(true);
+
+  // 加载本地工具版本
+  useEffect(() => {
+    const loadToolVersions = async () => {
+      try {
+        const versions = await invoke<ToolVersion[]>("get_tool_versions");
+        setToolVersions(versions);
+      } catch (error) {
+        console.error("Failed to load tool versions:", error);
+      } finally {
+        setLoadingTools(false);
+      }
+    };
+    loadToolVersions();
+  }, []);
 
   const handleCheckUpdate = async () => {
     setChecking(true);
@@ -69,7 +93,7 @@ export function AboutSection() {
         <h3 className="text-sm font-medium">相关链接</h3>
         <div className="space-y-2">
           <a
-            href="https://github.com/anthropics/claude-code"
+            href="https://github.com/aiclientproxy/proxycast"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50"
@@ -78,7 +102,7 @@ export function AboutSection() {
             <ExternalLink className="h-4 w-4 text-muted-foreground" />
           </a>
           <a
-            href="#"
+            href="https://github.com/aiclientproxy/proxycast/wiki"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50"
@@ -87,7 +111,7 @@ export function AboutSection() {
             <ExternalLink className="h-4 w-4 text-muted-foreground" />
           </a>
           <a
-            href="#"
+            href="https://github.com/aiclientproxy/proxycast/issues"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50"
@@ -102,16 +126,28 @@ export function AboutSection() {
       <div className="space-y-3">
         <h3 className="text-sm font-medium">本地工具版本</h3>
         <div className="p-4 rounded-lg border space-y-3">
-          <ToolVersionItem name="Claude Code" version="检测中..." />
-          <ToolVersionItem name="Codex CLI" version="检测中..." />
-          <ToolVersionItem name="Gemini CLI" version="检测中..." />
+          {loadingTools ? (
+            <>
+              <ToolVersionItem name="Claude Code" version="检测中..." />
+              <ToolVersionItem name="Codex" version="检测中..." />
+              <ToolVersionItem name="Gemini CLI" version="检测中..." />
+            </>
+          ) : (
+            toolVersions.map((tool) => (
+              <ToolVersionItem
+                key={tool.name}
+                name={tool.name}
+                version={tool.installed ? tool.version || "已安装" : "未安装"}
+              />
+            ))
+          )}
         </div>
       </div>
 
       {/* 版权信息 */}
       <div className="text-center text-xs text-muted-foreground pt-4 border-t">
         <p>Made with love for AI developers</p>
-        <p className="mt-1">2024-2025 ProxyCast</p>
+        <p className="mt-1">2025-2026 ProxyCast</p>
       </div>
     </div>
   );
