@@ -1,4 +1,5 @@
-import { AlertTriangle, X } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
+import { Modal } from "./Modal";
 
 interface ConfirmDialogProps {
   isOpen: boolean;
@@ -21,8 +22,6 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
-  if (!isOpen) return null;
-
   const variantStyles = {
     danger: {
       icon: "text-red-500",
@@ -41,22 +40,19 @@ export function ConfirmDialog({
   const styles = variantStyles[variant];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-sm rounded-lg bg-background p-6 shadow-xl">
+    <Modal
+      isOpen={isOpen}
+      onClose={onCancel}
+      maxWidth="max-w-sm"
+      showCloseButton={false}
+    >
+      <div className="p-6">
         <div className="flex items-start gap-4">
           <div className={`mt-0.5 ${styles.icon}`}>
             <AlertTriangle className="h-6 w-6" />
           </div>
           <div className="flex-1">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold">{title}</h3>
-              <button
-                onClick={onCancel}
-                className="rounded-lg p-1 hover:bg-muted"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
+            <h3 className="text-lg font-semibold">{title}</h3>
             <p className="mt-2 text-sm text-muted-foreground">{message}</p>
           </div>
         </div>
@@ -75,6 +71,6 @@ export function ConfirmDialog({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

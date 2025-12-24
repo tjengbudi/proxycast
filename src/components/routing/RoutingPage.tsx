@@ -1,5 +1,6 @@
 import { useState, useEffect, forwardRef, useImperativeHandle } from "react";
 import { RefreshCw, Route, Sparkles, Check, Trash2 } from "lucide-react";
+import { Modal } from "@/components/Modal";
 import { ModelMapping } from "./ModelMapping";
 import { RoutingRules } from "./RoutingRules";
 import { ExclusionList } from "./ExclusionList";
@@ -293,84 +294,81 @@ export const RoutingPage = forwardRef<RoutingPageRef, RoutingPageProps>(
         )}
 
         {/* Presets Modal */}
-        {showPresets && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-            <div className="w-full max-w-2xl rounded-lg bg-background p-6 shadow-xl max-h-[80vh] overflow-y-auto">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold flex items-center gap-2">
-                  <Sparkles className="h-5 w-5 text-primary" />
-                  推荐配置
-                </h3>
-                <button
-                  onClick={() => setShowPresets(false)}
-                  className="text-muted-foreground hover:text-foreground"
+        <Modal
+          isOpen={showPresets}
+          onClose={() => setShowPresets(false)}
+          maxWidth="max-w-2xl"
+          className="max-h-[80vh] overflow-y-auto"
+        >
+          <div className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-primary" />
+                推荐配置
+              </h3>
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">
+              选择一个预设配置快速设置路由规则和模型别名
+            </p>
+            <div className="space-y-3">
+              {presets.map((preset) => (
+                <div
+                  key={preset.id}
+                  className="rounded-lg border p-4 hover:border-primary/50 transition-colors"
                 >
-                  ✕
-                </button>
-              </div>
-              <p className="text-sm text-muted-foreground mb-4">
-                选择一个预设配置快速设置路由规则和模型别名
-              </p>
-              <div className="space-y-3">
-                {presets.map((preset) => (
-                  <div
-                    key={preset.id}
-                    className="rounded-lg border p-4 hover:border-primary/50 transition-colors"
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <h4 className="font-medium">{preset.name}</h4>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          {preset.description}
-                        </p>
-                        <div className="flex gap-4 mt-2 text-xs text-muted-foreground">
-                          <span>{preset.aliases.length} 个别名</span>
-                          <span>{preset.rules.length} 条规则</span>
-                          {preset.endpoint_providers && (
-                            <span>
-                              {
-                                Object.values(preset.endpoint_providers).filter(
-                                  (v) => v,
-                                ).length
-                              }{" "}
-                              个客户端路由
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex gap-2 ml-4">
-                        <button
-                          onClick={() => handleApplyPreset(preset.id, true)}
-                          disabled={applyingPreset !== null}
-                          className="flex items-center gap-1 rounded px-3 py-1.5 text-sm border hover:bg-muted disabled:opacity-50"
-                        >
-                          {applyingPreset === preset.id ? (
-                            <RefreshCw className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <Check className="h-3 w-3" />
-                          )}
-                          合并
-                        </button>
-                        <button
-                          onClick={() => handleApplyPreset(preset.id, false)}
-                          disabled={applyingPreset !== null}
-                          className="flex items-center gap-1 rounded bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-                        >
-                          {applyingPreset === preset.id ? (
-                            <RefreshCw className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <Check className="h-3 w-3" />
-                          )}
-                          应用
-                        </button>
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <h4 className="font-medium">{preset.name}</h4>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {preset.description}
+                      </p>
+                      <div className="flex gap-4 mt-2 text-xs text-muted-foreground">
+                        <span>{preset.aliases.length} 个别名</span>
+                        <span>{preset.rules.length} 条规则</span>
+                        {preset.endpoint_providers && (
+                          <span>
+                            {
+                              Object.values(preset.endpoint_providers).filter(
+                                (v) => v,
+                              ).length
+                            }{" "}
+                            个客户端路由
+                          </span>
+                        )}
                       </div>
                     </div>
+                    <div className="flex gap-2 ml-4">
+                      <button
+                        onClick={() => handleApplyPreset(preset.id, true)}
+                        disabled={applyingPreset !== null}
+                        className="flex items-center gap-1 rounded px-3 py-1.5 text-sm border hover:bg-muted disabled:opacity-50"
+                      >
+                        {applyingPreset === preset.id ? (
+                          <RefreshCw className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Check className="h-3 w-3" />
+                        )}
+                        合并
+                      </button>
+                      <button
+                        onClick={() => handleApplyPreset(preset.id, false)}
+                        disabled={applyingPreset !== null}
+                        className="flex items-center gap-1 rounded bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                      >
+                        {applyingPreset === preset.id ? (
+                          <RefreshCw className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Check className="h-3 w-3" />
+                        )}
+                        应用
+                      </button>
+                    </div>
                   </div>
-                ))}
-              </div>
+                </div>
+              ))}
             </div>
           </div>
-        )}
+        </Modal>
 
         <HelpTip title="智能路由说明" variant="blue">
           <ul className="list-disc list-inside space-y-1 text-sm text-blue-700 dark:text-blue-400">

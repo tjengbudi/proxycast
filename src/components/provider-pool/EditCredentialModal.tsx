@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import {
-  X,
   Eye,
   EyeOff,
   Settings,
@@ -10,6 +9,7 @@ import {
   Globe,
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { Modal } from "@/components/Modal";
 import {
   CredentialDisplay,
   UpdateCredentialRequest,
@@ -227,318 +227,311 @@ export function EditCredentialModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-2xl max-h-[85vh] rounded-lg bg-background shadow-xl flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b pb-4 px-6 pt-6 shrink-0">
-          <h3 className="text-lg font-semibold flex items-center gap-2">
-            <Settings className="h-5 w-5" />
-            编辑凭证
-          </h3>
-          <button onClick={onClose} className="rounded-lg p-1 hover:bg-muted">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      maxWidth="max-w-2xl"
+      className="max-h-[85vh] flex flex-col"
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between border-b pb-4 px-6 pt-6 shrink-0">
+        <h3 className="text-lg font-semibold flex items-center gap-2">
+          <Settings className="h-5 w-5" />
+          编辑凭证
+        </h3>
+      </div>
 
-        {/* Content - Scrollable */}
-        <div className="flex-1 overflow-y-auto px-6 py-4">
-          <div className="space-y-5">
-            {/* 名称 + 健康检查 */}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="mb-1 block text-sm font-medium">
-                  名称 (选填)
-                </label>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="给这个凭证起个名字..."
-                  className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium">
-                  健康检查
-                </label>
-                <select
-                  value={checkHealth ? "enabled" : "disabled"}
-                  onChange={(e) => setCheckHealth(e.target.value === "enabled")}
-                  className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
-                >
-                  <option value="enabled">启用</option>
-                  <option value="disabled">禁用</option>
-                </select>
-              </div>
-            </div>
-
-            {/* 检查模型名称 */}
+      {/* Content - Scrollable */}
+      <div className="flex-1 overflow-y-auto px-6 py-4">
+        <div className="space-y-5">
+          {/* 名称 + 健康检查 */}
+          <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="mb-1 block text-sm font-medium">
-                检查模型名称 (选填)
+                名称 (选填)
               </label>
               <input
                 type="text"
-                value={checkModelName}
-                onChange={(e) => setCheckModelName(e.target.value)}
-                placeholder="用于健康检查的模型名称..."
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="给这个凭证起个名字..."
                 className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
               />
             </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium">健康检查</label>
+              <select
+                value={checkHealth ? "enabled" : "disabled"}
+                onChange={(e) => setCheckHealth(e.target.value === "enabled")}
+                className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
+              >
+                <option value="enabled">启用</option>
+                <option value="disabled">禁用</option>
+              </select>
+            </div>
+          </div>
 
-            {/* OAuth凭据文件路径 */}
-            {isOAuth && (
+          {/* 检查模型名称 */}
+          <div>
+            <label className="mb-1 block text-sm font-medium">
+              检查模型名称 (选填)
+            </label>
+            <input
+              type="text"
+              value={checkModelName}
+              onChange={(e) => setCheckModelName(e.target.value)}
+              placeholder="用于健康检查的模型名称..."
+              className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
+            />
+          </div>
+
+          {/* OAuth凭据文件路径 */}
+          {isOAuth && (
+            <div>
+              <label className="mb-1 block text-sm font-medium">
+                OAuth凭据文件路径
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={
+                    showCredentialDetails
+                      ? credential.display_credential
+                      : getMaskedCredentialInfo()
+                  }
+                  readOnly
+                  className="flex-1 rounded-lg border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
+                />
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowCredentialDetails(!showCredentialDetails)
+                  }
+                  className="rounded-lg border p-2 hover:bg-muted"
+                  title={showCredentialDetails ? "隐藏" : "显示"}
+                >
+                  {showCredentialDetails ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSelectNewFile}
+                  className="rounded-lg border p-2 hover:bg-muted"
+                  title="上传新文件"
+                >
+                  <Upload className="h-4 w-4" />
+                </button>
+              </div>
+              {newCredFilePath && (
+                <div className="mt-2 text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+                  <CheckCircle className="h-3 w-3" />
+                  新文件已选择: {newCredFilePath.split("/").pop()}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Gemini Project ID */}
+          {credential.credential_type === "gemini_oauth" && newCredFilePath && (
+            <div>
+              <label className="mb-1 block text-sm font-medium">
+                项目ID（可选）
+              </label>
+              <input
+                type="text"
+                value={newProjectId}
+                onChange={(e) => setNewProjectId(e.target.value)}
+                placeholder="留空保持当前项目ID..."
+                className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
+              />
+            </div>
+          )}
+
+          {/* API Key 编辑 */}
+          {isApiKey && (
+            <>
               <div>
                 <label className="mb-1 block text-sm font-medium">
-                  OAuth凭据文件路径
+                  API Key
                 </label>
                 <div className="flex items-center gap-2">
                   <input
-                    type="text"
-                    value={
-                      showCredentialDetails
-                        ? credential.display_credential
-                        : getMaskedCredentialInfo()
-                    }
-                    readOnly
-                    className="flex-1 rounded-lg border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
+                    type={showApiKey ? "text" : "password"}
+                    value={newApiKey}
+                    onChange={(e) => setNewApiKey(e.target.value)}
+                    placeholder="留空保持当前 Key，或输入新的 API Key..."
+                    className="flex-1 rounded-lg border bg-background px-3 py-2 text-sm"
                   />
                   <button
                     type="button"
-                    onClick={() =>
-                      setShowCredentialDetails(!showCredentialDetails)
-                    }
+                    onClick={() => setShowApiKey(!showApiKey)}
                     className="rounded-lg border p-2 hover:bg-muted"
-                    title={showCredentialDetails ? "隐藏" : "显示"}
+                    title={showApiKey ? "隐藏" : "显示"}
                   >
-                    {showCredentialDetails ? (
+                    {showApiKey ? (
                       <EyeOff className="h-4 w-4" />
                     ) : (
                       <Eye className="h-4 w-4" />
                     )}
                   </button>
-                  <button
-                    type="button"
-                    onClick={handleSelectNewFile}
-                    className="rounded-lg border p-2 hover:bg-muted"
-                    title="上传新文件"
-                  >
-                    <Upload className="h-4 w-4" />
-                  </button>
                 </div>
-                {newCredFilePath && (
-                  <div className="mt-2 text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
-                    <CheckCircle className="h-3 w-3" />
-                    新文件已选择: {newCredFilePath.split("/").pop()}
-                  </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  当前: {credential.display_credential}
+                </p>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium">
+                  Base URL（可选）
+                </label>
+                <input
+                  type="text"
+                  value={newBaseUrl}
+                  onChange={(e) => setNewBaseUrl(e.target.value)}
+                  placeholder={
+                    credential.credential_type === "openai_key"
+                      ? "https://api.openai.com"
+                      : "https://api.anthropic.com"
+                  }
+                  className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  留空使用默认 URL，或输入自定义代理地址（不要包含 /v1 后缀）
+                </p>
+              </div>
+            </>
+          )}
+
+          {/* 不支持的模型 - Checkbox Grid */}
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <Ban className="h-4 w-4 text-muted-foreground" />
+              <label className="text-sm font-medium">不支持的模型</label>
+              <span className="text-xs text-muted-foreground">
+                选择此提供商不支持的模型，系统会自动排除这些模型
+              </span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {currentProviderModels.map((model) => (
+                <label
+                  key={model}
+                  className={`flex items-center gap-2 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
+                    notSupportedModels.includes(model)
+                      ? "border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950/30"
+                      : "border-border hover:bg-muted/50"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={notSupportedModels.includes(model)}
+                    onChange={() => toggleModelSupport(model)}
+                    className="rounded border-gray-300"
+                  />
+                  <span className="text-sm truncate">{model}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* 高级选项：代理设置 */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Globe className="h-4 w-4 text-blue-500" />
+              <label className="text-sm font-medium">凭证代理设置</label>
+              <span className="text-xs text-muted-foreground">
+                （高级选项）
+              </span>
+            </div>
+            <div className="rounded-lg border p-4 space-y-3">
+              <div>
+                <label className="block text-sm font-medium mb-1.5">
+                  代理 URL（可选）
+                </label>
+                <input
+                  type="text"
+                  value={proxyUrl}
+                  onChange={(e) => handleProxyUrlChange(e.target.value)}
+                  placeholder="例如: http://127.0.0.1:7890 或 socks5://127.0.0.1:1080"
+                  className={`w-full rounded-lg border bg-background px-3 py-2 text-sm ${
+                    proxyError ? "border-red-500" : ""
+                  }`}
+                />
+                {proxyError ? (
+                  <p className="text-xs text-red-500 mt-1">{proxyError}</p>
+                ) : (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    留空则使用全局代理设置。支持 http://、https://、socks5://
+                    协议
+                  </p>
                 )}
               </div>
-            )}
-
-            {/* Gemini Project ID */}
-            {credential.credential_type === "gemini_oauth" &&
-              newCredFilePath && (
-                <div>
-                  <label className="mb-1 block text-sm font-medium">
-                    项目ID（可选）
-                  </label>
-                  <input
-                    type="text"
-                    value={newProjectId}
-                    onChange={(e) => setNewProjectId(e.target.value)}
-                    placeholder="留空保持当前项目ID..."
-                    className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
-                  />
-                </div>
-              )}
-
-            {/* API Key 编辑 */}
-            {isApiKey && (
-              <>
-                <div>
-                  <label className="mb-1 block text-sm font-medium">
-                    API Key
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type={showApiKey ? "text" : "password"}
-                      value={newApiKey}
-                      onChange={(e) => setNewApiKey(e.target.value)}
-                      placeholder="留空保持当前 Key，或输入新的 API Key..."
-                      className="flex-1 rounded-lg border bg-background px-3 py-2 text-sm"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowApiKey(!showApiKey)}
-                      className="rounded-lg border p-2 hover:bg-muted"
-                      title={showApiKey ? "隐藏" : "显示"}
-                    >
-                      {showApiKey ? (
-                        <EyeOff className="h-4 w-4" />
-                      ) : (
-                        <Eye className="h-4 w-4" />
-                      )}
-                    </button>
-                  </div>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    当前: {credential.display_credential}
-                  </p>
-                </div>
-                <div>
-                  <label className="mb-1 block text-sm font-medium">
-                    Base URL（可选）
-                  </label>
-                  <input
-                    type="text"
-                    value={newBaseUrl}
-                    onChange={(e) => setNewBaseUrl(e.target.value)}
-                    placeholder={
-                      credential.credential_type === "openai_key"
-                        ? "https://api.openai.com"
-                        : "https://api.anthropic.com"
-                    }
-                    className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
-                  />
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    留空使用默认 URL，或输入自定义代理地址（不要包含 /v1 后缀）
-                  </p>
-                </div>
-              </>
-            )}
-
-            {/* 不支持的模型 - Checkbox Grid */}
-            <div>
-              <div className="flex items-center gap-2 mb-3">
-                <Ban className="h-4 w-4 text-muted-foreground" />
-                <label className="text-sm font-medium">不支持的模型</label>
-                <span className="text-xs text-muted-foreground">
-                  选择此提供商不支持的模型，系统会自动排除这些模型
-                </span>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {currentProviderModels.map((model) => (
-                  <label
-                    key={model}
-                    className={`flex items-center gap-2 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
-                      notSupportedModels.includes(model)
-                        ? "border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950/30"
-                        : "border-border hover:bg-muted/50"
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={notSupportedModels.includes(model)}
-                      onChange={() => toggleModelSupport(model)}
-                      className="rounded border-gray-300"
-                    />
-                    <span className="text-sm truncate">{model}</span>
-                  </label>
-                ))}
+              <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 p-3 text-xs">
+                <p className="font-medium text-blue-700 dark:text-blue-300">
+                  代理优先级说明：
+                </p>
+                <ul className="mt-1 list-inside list-disc text-blue-600 dark:text-blue-400">
+                  <li>此凭证代理优先于全局代理</li>
+                  <li>留空时使用全局代理设置</li>
+                  <li>全局代理可在「设置 → 通用」中配置</li>
+                </ul>
               </div>
             </div>
-
-            {/* 高级选项：代理设置 */}
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Globe className="h-4 w-4 text-blue-500" />
-                <label className="text-sm font-medium">凭证代理设置</label>
-                <span className="text-xs text-muted-foreground">
-                  （高级选项）
-                </span>
-              </div>
-              <div className="rounded-lg border p-4 space-y-3">
-                <div>
-                  <label className="block text-sm font-medium mb-1.5">
-                    代理 URL（可选）
-                  </label>
-                  <input
-                    type="text"
-                    value={proxyUrl}
-                    onChange={(e) => handleProxyUrlChange(e.target.value)}
-                    placeholder="例如: http://127.0.0.1:7890 或 socks5://127.0.0.1:1080"
-                    className={`w-full rounded-lg border bg-background px-3 py-2 text-sm ${
-                      proxyError ? "border-red-500" : ""
-                    }`}
-                  />
-                  {proxyError ? (
-                    <p className="text-xs text-red-500 mt-1">{proxyError}</p>
-                  ) : (
-                    <p className="text-xs text-muted-foreground mt-1">
-                      留空则使用全局代理设置。支持 http://、https://、socks5://
-                      协议
-                    </p>
-                  )}
-                </div>
-                <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 p-3 text-xs">
-                  <p className="font-medium text-blue-700 dark:text-blue-300">
-                    代理优先级说明：
-                  </p>
-                  <ul className="mt-1 list-inside list-disc text-blue-600 dark:text-blue-400">
-                    <li>此凭证代理优先于全局代理</li>
-                    <li>留空时使用全局代理设置</li>
-                    <li>全局代理可在「设置 → 通用」中配置</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-
-            {/* 使用统计（只读） */}
-            <div className="rounded-lg bg-muted/50 p-4">
-              <label className="mb-3 block text-sm font-medium">使用统计</label>
-              <div className="grid grid-cols-3 gap-4 text-sm">
-                <div>
-                  <span className="text-muted-foreground block text-xs">
-                    使用次数
-                  </span>
-                  <span className="font-semibold">
-                    {credential.usage_count}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground block text-xs">
-                    错误次数
-                  </span>
-                  <span className="font-semibold">
-                    {credential.error_count}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground block text-xs">
-                    最后使用
-                  </span>
-                  <span className="text-xs">
-                    {credential.last_used || "从未"}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Error */}
-            {error && (
-              <div className="rounded-lg border border-red-500 bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/30">
-                {error}
-              </div>
-            )}
           </div>
-        </div>
 
-        {/* Footer */}
-        <div className="border-t px-6 py-4 flex justify-end gap-2 shrink-0">
-          <button
-            onClick={onClose}
-            className="rounded-lg border px-4 py-2 text-sm hover:bg-muted"
-          >
-            取消
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={loading || !!proxyError}
-            className="rounded-lg bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-          >
-            {loading ? "保存中..." : "保存更改"}
-          </button>
+          {/* 使用统计（只读） */}
+          <div className="rounded-lg bg-muted/50 p-4">
+            <label className="mb-3 block text-sm font-medium">使用统计</label>
+            <div className="grid grid-cols-3 gap-4 text-sm">
+              <div>
+                <span className="text-muted-foreground block text-xs">
+                  使用次数
+                </span>
+                <span className="font-semibold">{credential.usage_count}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground block text-xs">
+                  错误次数
+                </span>
+                <span className="font-semibold">{credential.error_count}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground block text-xs">
+                  最后使用
+                </span>
+                <span className="text-xs">
+                  {credential.last_used || "从未"}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Error */}
+          {error && (
+            <div className="rounded-lg border border-red-500 bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/30">
+              {error}
+            </div>
+          )}
         </div>
       </div>
-    </div>
+
+      {/* Footer */}
+      <div className="border-t px-6 py-4 flex justify-end gap-2 shrink-0">
+        <button
+          onClick={onClose}
+          className="rounded-lg border px-4 py-2 text-sm hover:bg-muted"
+        >
+          取消
+        </button>
+        <button
+          onClick={handleSubmit}
+          disabled={loading || !!proxyError}
+          className="rounded-lg bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+        >
+          {loading ? "保存中..." : "保存更改"}
+        </button>
+      </div>
+    </Modal>
   );
 }

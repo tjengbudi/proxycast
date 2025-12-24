@@ -4,8 +4,9 @@
  */
 
 import { useState } from "react";
-import { X, Key, FolderOpen } from "lucide-react";
+import { Key, FolderOpen } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { Modal } from "@/components/Modal";
 import { providerPoolApi, PoolProviderType } from "@/lib/api/providerPool";
 import { AntigravityForm } from "./credential-forms/AntigravityForm";
 import { CodexForm } from "./credential-forms/CodexForm";
@@ -527,64 +528,57 @@ export function AddCredentialModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-md rounded-lg bg-background p-6 shadow-xl">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b pb-4">
-          <h3 className="text-lg font-semibold">
-            添加 {providerLabels[providerType]} 凭证
-          </h3>
-          <button onClick={onClose} className="rounded-lg p-1 hover:bg-muted">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="mt-4 space-y-4">
-          {/* 名称字段 */}
-          <div>
-            <label className="mb-1 block text-sm font-medium">
-              名称 (可选)
-            </label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="给这个凭证起个名字..."
-              className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
-            />
-          </div>
-
-          {/* 根据类型渲染不同表单 */}
-          {providerType === "antigravity" && antigravityForm.render()}
-          {providerType === "codex" && codexForm.render()}
-          {providerType === "claude_oauth" && claudeOAuthForm.render()}
-          {providerType === "qwen" && qwenForm.render()}
-          {providerType === "iflow" && iflowForm.render()}
-          {providerType === "gemini" && geminiForm.render()}
-          {providerType === "kiro" && kiroForm.render()}
-          {isSimpleOAuth.includes(providerType) && renderSimpleOAuthForm()}
-          {isApiKey && renderApiKeyForm()}
-
-          {/* 错误提示 */}
-          {error && (
-            <div className="rounded-lg border border-red-500 bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/30">
-              {error}
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="mt-6 flex justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="rounded-lg border px-4 py-2 text-sm hover:bg-muted"
-          >
-            取消
-          </button>
-          {renderFooterButton()}
-        </div>
+    <Modal isOpen={true} onClose={onClose} maxWidth="max-w-md">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b px-6 py-4">
+        <h3 className="text-lg font-semibold">
+          添加 {providerLabels[providerType]} 凭证
+        </h3>
       </div>
-    </div>
+
+      {/* Content */}
+      <div className="space-y-4 px-6 py-4">
+        {/* 名称字段 */}
+        <div>
+          <label className="mb-1 block text-sm font-medium">名称 (可选)</label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="给这个凭证起个名字..."
+            className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
+          />
+        </div>
+
+        {/* 根据类型渲染不同表单 */}
+        {providerType === "antigravity" && antigravityForm.render()}
+        {providerType === "codex" && codexForm.render()}
+        {providerType === "claude_oauth" && claudeOAuthForm.render()}
+        {providerType === "qwen" && qwenForm.render()}
+        {providerType === "iflow" && iflowForm.render()}
+        {providerType === "gemini" && geminiForm.render()}
+        {providerType === "kiro" && kiroForm.render()}
+        {isSimpleOAuth.includes(providerType) && renderSimpleOAuthForm()}
+        {isApiKey && renderApiKeyForm()}
+
+        {/* 错误提示 */}
+        {error && (
+          <div className="rounded-lg border border-red-500 bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/30">
+            {error}
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className="flex justify-end gap-2 border-t px-6 py-4">
+        <button
+          onClick={onClose}
+          className="rounded-lg border px-4 py-2 text-sm hover:bg-muted"
+        >
+          取消
+        </button>
+        {renderFooterButton()}
+      </div>
+    </Modal>
   );
 }

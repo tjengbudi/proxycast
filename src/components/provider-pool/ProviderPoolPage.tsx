@@ -30,20 +30,21 @@ export interface ProviderPoolPageRef {
   refresh: () => void;
 }
 
-// All provider types (OAuth/API Key 凭证)
-const allProviderTypes: PoolProviderType[] = [
+// OAuth 类型凭证（需要上传凭证文件或登录授权）
+const oauthProviderTypes: PoolProviderType[] = [
   "kiro",
   "gemini",
   "qwen",
   "antigravity",
-  "openai",
-  "claude",
   "codex",
   "claude_oauth",
   "iflow",
 ];
 
-// 配置类型 tab（非凭证池）
+// API Key 类型凭证（直接填入 API Key）
+const apiKeyProviderTypes: PoolProviderType[] = ["openai", "claude"];
+
+// 配置类型 tab（非凭证池）- gemini_api 移到 API Key 分类下
 type ConfigTabType = "gemini_api" | "vertex" | "amp";
 
 // 所有 tab 类型
@@ -62,7 +63,7 @@ const providerLabels: Record<PoolProviderType, string> = {
 };
 
 const configTabLabels: Record<ConfigTabType, string> = {
-  gemini_api: "Gemini API Key",
+  gemini_api: "Gemini",
   vertex: "Vertex AI",
   amp: "Amp CLI",
 };
@@ -72,12 +73,16 @@ const isConfigTab = (tab: TabType): tab is ConfigTabType => {
   return ["gemini_api", "vertex", "amp"].includes(tab);
 };
 
+// 分类类型
+type CategoryType = "oauth" | "apikey" | "config";
+
 export const ProviderPoolPage = forwardRef<ProviderPoolPageRef>(
   (_props, ref) => {
     const [addModalOpen, setAddModalOpen] = useState(false);
     const [editModalOpen, setEditModalOpen] = useState(false);
     const [editingCredential, setEditingCredential] =
       useState<CredentialDisplay | null>(null);
+    const [activeCategory, setActiveCategory] = useState<CategoryType>("oauth");
     const [activeTab, setActiveTab] = useState<TabType>("kiro");
     const [deletingCredentials, setDeletingCredentials] = useState<Set<string>>(
       new Set(),
@@ -136,13 +141,13 @@ export const ProviderPoolPage = forwardRef<ProviderPoolPageRef>(
       setConfigSaving(false);
     };
 
-    // 切换到配置 tab 时加载配置
+    // 切换到配置 tab 或 apikey 分类时加载配置（apikey 分类包含 gemini_api）
     useEffect(() => {
-      if (isConfigTab(activeTab)) {
+      if (isConfigTab(activeTab) || activeCategory === "apikey") {
         loadConfig();
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeTab]);
+    }, [activeTab, activeCategory]);
 
     useImperativeHandle(ref, () => ({
       refresh,
@@ -367,48 +372,166 @@ export const ProviderPoolPage = forwardRef<ProviderPoolPageRef>(
           </div>
         )}
 
-        {/* Tabs */}
-        <div className="flex gap-2 border-b overflow-x-auto">
-          {/* 凭证池 tabs */}
-          {allProviderTypes.map((providerType) => {
-            const count = getCredentialCount(providerType);
-            return (
-              <button
-                key={providerType}
-                onClick={() => setActiveTab(providerType)}
-                className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap flex items-center gap-2 ${
-                  activeTab === providerType
-                    ? "border-primary text-primary"
-                    : "border-transparent text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <ProviderIcon providerType={providerType} size={16} />
-                {providerLabels[providerType]}
-                {count > 0 && (
-                  <span className="rounded-full bg-muted px-1.5 py-0.5 text-xs">
-                    {count}
+        {/* Category Tabs - 第一行：分类选择 */}
+        <div className="flex gap-1 mb-2">
+          <button
+            onClick={() => {
+              setActiveCategory("oauth");
+              setActiveTab(oauthProviderTypes[0]);
+            }}
+            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+              activeCategory === "oauth"
+                ? "bg-primary text-primary-foreground"
+                : "bg-muted text-muted-foreground hover:text-foreground hover:bg-muted/80"
+            }`}
+          >
+            OAuth 凭证
+          </button>
+          <button
+            onClick={() => {
+              setActiveCategory("apikey");
+              setActiveTab(apiKeyProviderTypes[0]);
+            }}
+            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+              activeCategory === "apikey"
+                ? "bg-primary text-primary-foreground"
+                : "bg-muted text-muted-foreground hover:text-foreground hover:bg-muted/80"
+            }`}
+          >
+            API Key
+          </button>
+          <button
+            onClick={() => {
+              setActiveCategory("config");
+              setActiveTab("vertex");
+            }}
+            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+              activeCategory === "config"
+                ? "bg-primary text-primary-foreground"
+                : "bg-muted text-muted-foreground hover:text-foreground hover:bg-muted/80"
+            }`}
+          >
+            其他配置
+          </button>
+        </div>
+
+        {/* Provider Selection - 第二行：图标网格选择 */}
+        {activeCategory === "oauth" && (
+          <div className="flex flex-wrap gap-2">
+            {oauthProviderTypes.map((providerType) => {
+              const count = getCredentialCount(providerType);
+              const isActive = activeTab === providerType;
+              return (
+                <button
+                  key={providerType}
+                  onClick={() => setActiveTab(providerType)}
+                  title={providerLabels[providerType]}
+                  className={`group relative flex items-center gap-2 px-3 py-2 rounded-lg border transition-all ${
+                    isActive
+                      ? "border-primary bg-primary/10 text-primary shadow-sm"
+                      : "border-border bg-card hover:border-primary/50 hover:bg-muted text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <ProviderIcon providerType={providerType} size={20} />
+                  <span className="text-sm font-medium">
+                    {providerLabels[providerType].split(" ")[0]}
                   </span>
-                )}
-              </button>
-            );
-          })}
-          {/* 分隔符 */}
-          <div className="border-l mx-2" />
-          {/* 配置 tabs */}
-          {(Object.keys(configTabLabels) as ConfigTabType[]).map((tabId) => (
+                  {count > 0 && (
+                    <span
+                      className={`min-w-[1.25rem] h-5 flex items-center justify-center rounded-full text-xs font-medium ${
+                        isActive
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted-foreground/20 text-muted-foreground group-hover:bg-primary/20 group-hover:text-primary"
+                      }`}
+                    >
+                      {count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {activeCategory === "apikey" && (
+          <div className="flex flex-wrap gap-2">
+            {apiKeyProviderTypes.map((providerType) => {
+              const count = getCredentialCount(providerType);
+              const isActive = activeTab === providerType;
+              return (
+                <button
+                  key={providerType}
+                  onClick={() => setActiveTab(providerType)}
+                  title={providerLabels[providerType]}
+                  className={`group relative flex items-center gap-2 px-3 py-2 rounded-lg border transition-all ${
+                    isActive
+                      ? "border-primary bg-primary/10 text-primary shadow-sm"
+                      : "border-border bg-card hover:border-primary/50 hover:bg-muted text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <ProviderIcon providerType={providerType} size={20} />
+                  <span className="text-sm font-medium">
+                    {providerLabels[providerType].split(" ")[0]}
+                  </span>
+                  {count > 0 && (
+                    <span
+                      className={`min-w-[1.25rem] h-5 flex items-center justify-center rounded-full text-xs font-medium ${
+                        isActive
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted-foreground/20 text-muted-foreground group-hover:bg-primary/20 group-hover:text-primary"
+                      }`}
+                    >
+                      {count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+            {/* Gemini API Key - 配置文件存储但归类到 API Key */}
             <button
-              key={tabId}
-              onClick={() => setActiveTab(tabId)}
-              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap ${
-                activeTab === tabId
-                  ? "border-primary text-primary"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
+              onClick={() => setActiveTab("gemini_api")}
+              title="Gemini API Key"
+              className={`group relative flex items-center gap-2 px-3 py-2 rounded-lg border transition-all ${
+                activeTab === "gemini_api"
+                  ? "border-primary bg-primary/10 text-primary shadow-sm"
+                  : "border-border bg-card hover:border-primary/50 hover:bg-muted text-muted-foreground hover:text-foreground"
               }`}
             >
-              {configTabLabels[tabId]}
+              <ProviderIcon providerType="gemini" size={20} />
+              <span className="text-sm font-medium">Gemini</span>
+              {(config?.credential_pool?.gemini_api_keys?.length ?? 0) > 0 && (
+                <span
+                  className={`min-w-[1.25rem] h-5 flex items-center justify-center rounded-full text-xs font-medium ${
+                    activeTab === "gemini_api"
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted-foreground/20 text-muted-foreground group-hover:bg-primary/20 group-hover:text-primary"
+                  }`}
+                >
+                  {config?.credential_pool?.gemini_api_keys?.length}
+                </span>
+              )}
             </button>
-          ))}
-        </div>
+          </div>
+        )}
+        {activeCategory === "config" && (
+          <div className="flex flex-wrap gap-2">
+            {(["vertex", "amp"] as const).map((tabId) => {
+              const isActive = activeTab === tabId;
+              return (
+                <button
+                  key={tabId}
+                  onClick={() => setActiveTab(tabId)}
+                  className={`px-3 py-2 rounded-lg border text-sm font-medium transition-all ${
+                    isActive
+                      ? "border-primary bg-primary/10 text-primary shadow-sm"
+                      : "border-border bg-card hover:border-primary/50 hover:bg-muted text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {configTabLabels[tabId]}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {/* 配置 Tab 内容 */}
         {isConfigTab(activeTab) ? (
@@ -432,13 +555,16 @@ export const ProviderPoolPage = forwardRef<ProviderPoolPageRef>(
                       })
                     }
                   />
-                  <button
-                    onClick={handleSaveConfig}
-                    disabled={configSaving}
-                    className="w-full px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
-                  >
-                    {configSaving ? "保存中..." : "保存配置"}
-                  </button>
+                  {(config.credential_pool?.gemini_api_keys?.length ?? 0) >
+                    0 && (
+                    <button
+                      onClick={handleSaveConfig}
+                      disabled={configSaving}
+                      className="w-full px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
+                    >
+                      {configSaving ? "保存中..." : "保存配置"}
+                    </button>
+                  )}
                 </>
               )}
 
@@ -456,13 +582,16 @@ export const ProviderPoolPage = forwardRef<ProviderPoolPageRef>(
                       })
                     }
                   />
-                  <button
-                    onClick={handleSaveConfig}
-                    disabled={configSaving}
-                    className="w-full px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
-                  >
-                    {configSaving ? "保存中..." : "保存配置"}
-                  </button>
+                  {(config.credential_pool?.vertex_api_keys?.length ?? 0) >
+                    0 && (
+                    <button
+                      onClick={handleSaveConfig}
+                      disabled={configSaving}
+                      className="w-full px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
+                    >
+                      {configSaving ? "保存中..." : "保存配置"}
+                    </button>
+                  )}
                 </>
               )}
 
@@ -537,15 +666,15 @@ export const ProviderPoolPage = forwardRef<ProviderPoolPageRef>(
                       <RotateCcw className="h-4 w-4" />
                       重置状态
                     </button>
+                    <button
+                      onClick={openAddModal}
+                      className="flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90"
+                    >
+                      <Plus className="h-4 w-4" />
+                      添加凭证
+                    </button>
                   </>
                 )}
-                <button
-                  onClick={openAddModal}
-                  className="flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90"
-                >
-                  <Plus className="h-4 w-4" />
-                  添加凭证
-                </button>
               </div>
             </div>
 
