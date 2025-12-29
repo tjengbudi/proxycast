@@ -19,6 +19,13 @@ pub enum AnthropicContentBlock {
     },
     #[serde(rename = "image")]
     Image { source: ImageSource },
+    /// Extended Thinking 块
+    #[serde(rename = "thinking")]
+    Thinking {
+        thinking: String,
+        /// 签名字段，用于验证思维内容的完整性
+        signature: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -120,6 +127,12 @@ pub enum AnthropicDelta {
     TextDelta { text: String },
     #[serde(rename = "input_json_delta")]
     InputJsonDelta { partial_json: String },
+    /// Extended Thinking delta
+    #[serde(rename = "thinking_delta")]
+    ThinkingDelta { thinking: String },
+    /// Signature delta for thinking blocks
+    #[serde(rename = "signature_delta")]
+    SignatureDelta { signature: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
