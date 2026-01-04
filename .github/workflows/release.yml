@@ -49,7 +49,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -80,6 +79,7 @@ jobs:
           CARGO_PROFILE_RELEASE_LTO: thin
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 16
         with:
+          tauriScript: npx tauri
           tagName: ${{ github.event.inputs.version || github.ref_name }}
           releaseName: 'ProxyCast ${{ github.event.inputs.version || github.ref_name }}'
           releaseBody: |
