@@ -20,8 +20,6 @@ use std::sync::Arc;
 
 #[cfg(target_os = "windows")]
 use std::io::{Read, Write};
-#[cfg(target_os = "windows")]
-use std::sync::Mutex;
 
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -686,8 +684,8 @@ impl WSLShellProc {
         let shutdown_flag = Arc::new(AtomicBool::new(false));
         let exit_code = Arc::new(AtomicI32::new(0));
         let exited = Arc::new(AtomicBool::new(false));
-        let writer = Arc::new(Mutex::new(writer));
-        let master = Arc::new(Mutex::new(pair.master));
+        let writer = Arc::new(parking_lot::Mutex::new(writer));
+        let master = Arc::new(parking_lot::Mutex::new(pair.master));
 
         // 启动输出读取任务
         Self::spawn_output_reader(
@@ -894,8 +892,8 @@ impl WSLShellProc {
     #[cfg(target_os = "windows")]
     fn spawn_input_handler(
         block_id: String,
-        writer: Arc<Mutex<Box<dyn Write + Send>>>,
-        master: Arc<Mutex<Box<dyn portable_pty::MasterPty + Send>>>,
+        writer: Arc<parking_lot::Mutex<Box<dyn Write + Send>>>,
+        master: Arc<parking_lot::Mutex<Box<dyn portable_pty::MasterPty + Send>>>,
         mut input_rx: mpsc::Receiver<BlockInputUnion>,
         shutdown_flag: Arc<AtomicBool>,
     ) {
