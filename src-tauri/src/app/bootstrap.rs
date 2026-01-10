@@ -37,6 +37,7 @@ use crate::services::api_key_provider_service::ApiKeyProviderService;
 use crate::services::provider_pool_service::ProviderPoolService;
 use crate::services::skill_service::SkillService;
 use crate::services::token_cache_service::TokenCacheService;
+use crate::services::update_check_service::UpdateCheckServiceState;
 use crate::telemetry;
 
 use super::types::{AppState, LogState, TokenCacheServiceState};
@@ -146,6 +147,7 @@ pub struct AppStates {
     pub global_config_manager: GlobalConfigManagerState,
     pub terminal_manager: TerminalManagerState,
     pub webview_manager: WebviewManagerWrapper,
+    pub update_check_service: UpdateCheckServiceState,
     // 用于 setup hook 的共享实例
     pub shared_stats: Arc<parking_lot::RwLock<telemetry::StatsAggregator>>,
     pub shared_tokens: Arc<parking_lot::RwLock<telemetry::TokenTracker>>,
@@ -233,6 +235,9 @@ pub fn init_states(config: &Config) -> Result<AppStates, String> {
     let webview_manager_state =
         WebviewManagerWrapper(Arc::new(RwLock::new(WebviewManagerState::new())));
 
+    // 初始化更新检查服务
+    let update_check_service_state = UpdateCheckServiceState::new();
+
     // 初始化全局配置管理器
     let config_path = ConfigManager::default_config_path();
     let global_config_manager = GlobalConfigManager::new(config.clone(), config_path);
@@ -277,6 +282,7 @@ pub fn init_states(config: &Config) -> Result<AppStates, String> {
         global_config_manager: global_config_manager_state,
         terminal_manager: terminal_manager_state,
         webview_manager: webview_manager_state,
+        update_check_service: update_check_service_state,
         shared_stats,
         shared_tokens,
         shared_logger,

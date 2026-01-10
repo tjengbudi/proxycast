@@ -17,6 +17,7 @@ import {
   ExperimentalFeatures,
 } from "@/hooks/useTauri";
 import { ShortcutSettings } from "@/components/screenshot-chat/ShortcutSettings";
+import { UpdateCheckSettings } from "./UpdateNotification";
 
 // ============================================================
 // 组件
@@ -255,6 +256,11 @@ export function ExperimentalSettings() {
             </div>
           </div>
         )}
+      </div>
+
+      {/* 自动更新检查设置 */}
+      <div className="rounded-lg border p-4">
+        <UpdateCheckSettings />
       </div>
 
       {/* 更多实验功能占位 */}

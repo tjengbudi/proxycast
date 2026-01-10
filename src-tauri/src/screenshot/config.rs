@@ -119,6 +119,7 @@ mod tests {
                 enabled: true,
                 shortcut: "CommandOrControl+Shift+S".to_string(),
             },
+            ..Default::default()
         };
         assert!(is_screenshot_chat_enabled(&config));
     }

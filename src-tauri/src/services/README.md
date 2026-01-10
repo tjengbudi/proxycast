@@ -27,6 +27,8 @@
 - `kiro_event_service.rs` - Kiro 事件服务
 - `machine_id_service.rs` - 机器 ID 服务
 - `model_registry_service.rs` - 模型注册表服务
+- `update_check_service.rs` - 自动更新检查服务（每日检查、系统通知）
+- `update_window.rs` - 更新提醒独立窗口管理
 
 ## 更新提醒
 

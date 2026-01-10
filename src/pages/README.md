@@ -11,6 +11,8 @@
 
 - `FlowMonitorPage.tsx` - LLM 流量监控页面
 - `screenshot-chat.tsx` - 截图对话悬浮窗口页面（独立 Tauri 窗口）
+- `update-notification.tsx` - 更新提醒悬浮窗口页面（独立 Tauri 窗口）
+- `update-notification.css` - 更新提醒窗口样式
 - `index.ts` - 页面导出入口
 
 ## 更新提醒

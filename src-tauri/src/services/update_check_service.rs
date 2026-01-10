@@ -1,0 +1,350 @@
+//! 自动更新检查服务
+//!
+//! 提供每日自动检查更新功能，支持：
+//! - 定时检查（可配置间隔）
+//! - 系统原生通知（macOS/Windows）
+//! - 用户可控（启用/禁用、跳过版本）
+//!
+//! ## 平台适配
+//! - macOS: 使用 NSUserNotification / UNUserNotificationCenter
+//! - Windows: 使用 Windows Toast Notification
+//!
+//! ## 使用示例
+//! ```rust,ignore
+//! let service = UpdateCheckService::new();
+//! service.start_background_check(app_handle).await;
+//! ```
+
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::RwLock;
+
+/// 更新检查结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateInfo {
+    /// 当前版本
+    pub current_version: String,
+    /// 最新版本
+    pub latest_version: Option<String>,
+    /// 是否有更新
+    pub has_update: bool,
+    /// 下载链接
+    pub download_url: Option<String>,
+    /// 发布说明链接
+    pub release_notes_url: Option<String>,
+    /// 检查时间（Unix 时间戳）
+    pub checked_at: u64,
+    /// 错误信息
+    pub error: Option<String>,
+}
+
+/// 更新检查服务状态
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateCheckState {
+    /// 是否正在检查
+    pub is_checking: bool,
+    /// 最后一次检查结果
+    pub last_result: Option<UpdateInfo>,
+    /// 下次检查时间（Unix 时间戳）
+    pub next_check_at: Option<u64>,
+}
+
+impl Default for UpdateCheckState {
+    fn default() -> Self {
+        Self {
+            is_checking: false,
+            last_result: None,
+            next_check_at: None,
+        }
+    }
+}
+
+/// 更新检查服务
+pub struct UpdateCheckService {
+    state: Arc<RwLock<UpdateCheckState>>,
+    github_api_url: String,
+}
+
+impl UpdateCheckService {
+    const CURRENT_VERSION: &'static str = env!("CARGO_PKG_VERSION");
+    const DEFAULT_GITHUB_API_URL: &'static str =
+        "https://api.github.com/repos/aiclientproxy/proxycast/releases/latest";
+
+    pub fn new() -> Self {
+        Self {
+            state: Arc::new(RwLock::new(UpdateCheckState::default())),
+            github_api_url: Self::DEFAULT_GITHUB_API_URL.to_string(),
+        }
+    }
+
+    /// 获取当前状态
+    pub async fn get_state(&self) -> UpdateCheckState {
+        self.state.read().await.clone()
+    }
+
+    /// 检查是否需要执行更新检查
+    pub fn should_check(
+        last_check_timestamp: u64,
+        check_interval_hours: u32,
+        skipped_version: Option<&str>,
+        latest_version: Option<&str>,
+    ) -> bool {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        let interval_secs = (check_interval_hours as u64) * 3600;
+
+        // 检查时间间隔
+        if now < last_check_timestamp + interval_secs {
+            return false;
+        }
+
+        // 检查是否跳过了当前最新版本
+        if let (Some(skipped), Some(latest)) = (skipped_version, latest_version) {
+            if skipped == latest {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    /// 执行更新检查
+    pub async fn check_for_updates(&self) -> UpdateInfo {
+        {
+            let mut state = self.state.write().await;
+            state.is_checking = true;
+        }
+
+        let result = self.do_check().await;
+
+        {
+            let mut state = self.state.write().await;
+            state.is_checking = false;
+            state.last_result = Some(result.clone());
+        }
+
+        result
+    }
+
+    async fn do_check(&self) -> UpdateInfo {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build();
+
+        let client = match client {
+            Ok(c) => c,
+            Err(e) => {
+                return UpdateInfo {
+                    current_version: Self::CURRENT_VERSION.to_string(),
+                    latest_version: None,
+                    has_update: false,
+                    download_url: None,
+                    release_notes_url: None,
+                    checked_at: now,
+                    error: Some(format!("创建 HTTP 客户端失败: {}", e)),
+                };
+            }
+        };
+
+        match client
+            .get(&self.github_api_url)
+            .header("User-Agent", "ProxyCast")
+            .header("Accept", "application/vnd.github.v3+json")
+            .send()
+            .await
+        {
+            Ok(response) => {
+                if response.status().is_success() {
+                    match response.json::<serde_json::Value>().await {
+                        Ok(data) => {
+                            let latest_version = data["tag_name"]
+                                .as_str()
+                                .unwrap_or("")
+                                .trim_start_matches('v')
+                                .to_string();
+
+                            let download_url = data["html_url"].as_str().map(|s| s.to_string());
+                            let release_notes_url = download_url.clone();
+
+                            let has_update =
+                                Self::version_compare(Self::CURRENT_VERSION, &latest_version);
+
+                            UpdateInfo {
+                                current_version: Self::CURRENT_VERSION.to_string(),
+                                latest_version: Some(latest_version),
+                                has_update,
+                                download_url,
+                                release_notes_url,
+                                checked_at: now,
+                                error: None,
+                            }
+                        }
+                        Err(e) => UpdateInfo {
+                            current_version: Self::CURRENT_VERSION.to_string(),
+                            latest_version: None,
+                            has_update: false,
+                            download_url: None,
+                            release_notes_url: None,
+                            checked_at: now,
+                            error: Some(format!("解析响应失败: {}", e)),
+                        },
+                    }
+                } else {
+                    UpdateInfo {
+                        current_version: Self::CURRENT_VERSION.to_string(),
+                        latest_version: None,
+                        has_update: false,
+                        download_url: None,
+                        release_notes_url: None,
+                        checked_at: now,
+                        error: Some(format!("GitHub API 请求失败: {}", response.status())),
+                    }
+                }
+            }
+            Err(e) => UpdateInfo {
+                current_version: Self::CURRENT_VERSION.to_string(),
+                latest_version: None,
+                has_update: false,
+                download_url: None,
+                release_notes_url: None,
+                checked_at: now,
+                error: Some(format!("网络请求失败: {}", e)),
+            },
+        }
+    }
+
+    /// 版本比较：返回 true 如果 latest > current
+    fn version_compare(current: &str, latest: &str) -> bool {
+        let current = current.trim_start_matches('v');
+        let latest = latest.trim_start_matches('v');
+
+        let current_parts: Vec<u32> = current.split('.').filter_map(|s| s.parse().ok()).collect();
+        let latest_parts: Vec<u32> = latest.split('.').filter_map(|s| s.parse().ok()).collect();
+
+        let max_len = current_parts.len().max(latest_parts.len());
+
+        for i in 0..max_len {
+            let current_part = current_parts.get(i).unwrap_or(&0);
+            let latest_part = latest_parts.get(i).unwrap_or(&0);
+
+            if latest_part > current_part {
+                return true;
+            } else if latest_part < current_part {
+                return false;
+            }
+        }
+
+        false
+    }
+}
+
+impl Default for UpdateCheckService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// 发送系统通知（跨平台）
+///
+/// 使用 Tauri 的通知 API 发送原生系统通知
+#[cfg(feature = "notification")]
+pub async fn send_update_notification(
+    app_handle: &tauri::AppHandle,
+    update_info: &UpdateInfo,
+) -> Result<(), String> {
+    use tauri::api::notification::Notification;
+
+    if !update_info.has_update {
+        return Ok(());
+    }
+
+    let latest = update_info.latest_version.as_deref().unwrap_or("未知版本");
+
+    Notification::new(&app_handle.config().tauri.bundle.identifier)
+        .title("ProxyCast 有新版本可用")
+        .body(&format!(
+            "新版本 {} 已发布，当前版本 {}",
+            latest, update_info.current_version
+        ))
+        .show()
+        .map_err(|e| format!("发送通知失败: {}", e))
+}
+
+/// 更新检查服务状态包装器（用于 Tauri 状态管理）
+pub struct UpdateCheckServiceState(pub Arc<RwLock<UpdateCheckService>>);
+
+impl UpdateCheckServiceState {
+    pub fn new() -> Self {
+        Self(Arc::new(RwLock::new(UpdateCheckService::new())))
+    }
+}
+
+impl Default for UpdateCheckServiceState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_version_compare() {
+        assert!(UpdateCheckService::version_compare("0.14.0", "0.14.1"));
+        assert!(UpdateCheckService::version_compare("0.14.0", "0.15.0"));
+        assert!(UpdateCheckService::version_compare("0.14.0", "1.0.0"));
+        assert!(UpdateCheckService::version_compare("0.38.0", "0.39.0"));
+        assert!(!UpdateCheckService::version_compare("0.14.1", "0.14.0"));
+        assert!(!UpdateCheckService::version_compare("0.14.0", "0.14.0"));
+        assert!(!UpdateCheckService::version_compare("1.0.0", "0.14.0"));
+    }
+
+    #[test]
+    fn test_should_check() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        // 从未检查过，应该检查
+        assert!(UpdateCheckService::should_check(0, 24, None, None));
+
+        // 刚检查过，不应该检查
+        assert!(!UpdateCheckService::should_check(now, 24, None, None));
+
+        // 超过间隔，应该检查
+        let old_timestamp = now - 25 * 3600;
+        assert!(UpdateCheckService::should_check(
+            old_timestamp,
+            24,
+            None,
+            None
+        ));
+
+        // 跳过了当前最新版本，不应该检查
+        assert!(!UpdateCheckService::should_check(
+            0,
+            24,
+            Some("1.0.0"),
+            Some("1.0.0")
+        ));
+
+        // 跳过了旧版本，应该检查
+        assert!(UpdateCheckService::should_check(
+            0,
+            24,
+            Some("0.9.0"),
+            Some("1.0.0")
+        ));
+    }
+}

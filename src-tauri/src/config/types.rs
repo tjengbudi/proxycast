@@ -404,6 +404,52 @@ fn default_screenshot_shortcut() -> String {
     "CommandOrControl+Alt+Q".to_string()
 }
 
+/// 自动更新检查配置
+///
+/// 配置自动检查更新的行为，符合 macOS/Windows 平台规范
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct UpdateCheckConfig {
+    /// 是否启用自动检查更新
+    #[serde(default = "default_update_check_enabled")]
+    pub enabled: bool,
+    /// 检查间隔（小时），默认 24 小时
+    #[serde(default = "default_check_interval_hours")]
+    pub check_interval_hours: u32,
+    /// 是否显示系统通知
+    #[serde(default = "default_show_notification")]
+    pub show_notification: bool,
+    /// 上次检查时间（Unix 时间戳，秒）
+    #[serde(default)]
+    pub last_check_timestamp: u64,
+    /// 已跳过的版本（用户选择"跳过此版本"）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skipped_version: Option<String>,
+}
+
+fn default_update_check_enabled() -> bool {
+    true
+}
+
+fn default_check_interval_hours() -> u32 {
+    24
+}
+
+fn default_show_notification() -> bool {
+    true
+}
+
+impl Default for UpdateCheckConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_update_check_enabled(),
+            check_interval_hours: default_check_interval_hours(),
+            show_notification: default_show_notification(),
+            last_check_timestamp: 0,
+            skipped_version: None,
+        }
+    }
+}
+
 impl Default for ScreenshotChatConfig {
     fn default() -> Self {
         Self {
@@ -421,6 +467,9 @@ pub struct ExperimentalFeatures {
     /// 截图对话功能配置
     #[serde(default)]
     pub screenshot_chat: ScreenshotChatConfig,
+    /// 自动更新检查配置
+    #[serde(default)]
+    pub update_check: UpdateCheckConfig,
 }
 
 impl NativeAgentConfig {
@@ -1522,6 +1571,7 @@ mod unit_tests {
                 enabled: true,
                 shortcut: "CommandOrControl+Alt+X".to_string(),
             },
+            ..Default::default()
         };
 
         let yaml = serde_yaml::to_string(&config).unwrap();

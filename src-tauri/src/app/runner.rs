@@ -75,6 +75,7 @@ pub fn run() {
         global_config_manager: global_config_manager_state,
         terminal_manager: terminal_manager_state,
         webview_manager: webview_manager_state,
+        update_check_service: update_check_service_state,
         shared_stats,
         shared_tokens,
         shared_logger,
@@ -93,6 +94,7 @@ pub fn run() {
     let shared_logger_clone = shared_logger.clone();
     let flow_monitor_clone = flow_monitor.clone();
     let flow_interceptor_clone = flow_interceptor.clone();
+    let update_check_service_clone = update_check_service_state.0.clone();
 
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -154,6 +156,7 @@ pub fn run() {
         .manage(global_config_manager_state)
         .manage(terminal_manager_state)
         .manage(webview_manager_state)
+        .manage(update_check_service_state)
         .on_window_event(move |window, event| {
             // 处理窗口关闭事件
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -563,6 +566,18 @@ pub fn run() {
                     }
                 }
             });
+
+            // 启动后台更新检查任务
+            let app_handle_for_update = app.handle().clone();
+            let update_service_for_task = update_check_service_clone.clone();
+            tauri::async_runtime::spawn(async move {
+                crate::commands::update_cmd::start_background_update_check(
+                    app_handle_for_update,
+                    update_service_for_task,
+                ).await;
+            });
+            tracing::info!("[启动] 后台更新检查任务已启动");
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1153,6 +1168,14 @@ pub fn run() {
             commands::screenshot_cmd::send_screenshot_chat,
             commands::screenshot_cmd::close_screenshot_chat_window,
             commands::screenshot_cmd::read_image_as_base64,
+            // Update Check commands
+            commands::update_cmd::check_update,
+            commands::update_cmd::get_update_check_settings,
+            commands::update_cmd::set_update_check_settings,
+            commands::update_cmd::skip_update_version,
+            commands::update_cmd::update_last_check_timestamp,
+            commands::update_cmd::close_update_window,
+            commands::update_cmd::test_update_window,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -14,4 +14,6 @@ pub mod skill_service;
 pub mod switch;
 pub mod sysinfo_service;
 pub mod token_cache_service;
+pub mod update_check_service;
+pub mod update_window;
 pub mod usage_service;
