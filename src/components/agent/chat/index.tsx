@@ -15,7 +15,7 @@ import { ChatSettings } from "./components/ChatSettings";
 import { MessageList } from "./components/MessageList";
 import { Inputbar } from "./components/Inputbar";
 import { EmptyState, CreationMode } from "./components/EmptyState";
-import { TaskFileList, type TaskFile } from "./components/TaskFiles";
+import { type TaskFile } from "./components/TaskFiles";
 import { LayoutTransition } from "@/components/content-creator/core/LayoutTransition/LayoutTransition";
 import { StepProgress } from "@/components/content-creator/core/StepGuide/StepProgress";
 import { useWorkflow } from "@/components/content-creator/hooks/useWorkflow";
@@ -166,12 +166,120 @@ export function AgentChatPage({
   });
 
   // 会话文件持久化 hook
-  const { saveFile: saveSessionFile } = useSessionFiles({
+  const {
+    saveFile: saveSessionFile,
+    files: sessionFiles,
+    readFile: readSessionFile,
+    meta: sessionMeta,
+  } = useSessionFiles({
     sessionId,
     theme: mappedTheme,
     creationMode,
     autoInit: true,
   });
+
+  // 追踪已恢复元数据和文件的会话 ID
+  const restoredMetaSessionId = useRef<string | null>(null);
+  const restoredFilesSessionId = useRef<string | null>(null);
+
+  // 当 sessionMeta 加载完成时，恢复主题和创建模式
+  useEffect(() => {
+    if (!sessionId || !sessionMeta) {
+      return;
+    }
+
+    // 检查 sessionMeta 是否属于当前 sessionId
+    if (sessionMeta.sessionId !== sessionId) {
+      return;
+    }
+
+    // 避免重复恢复
+    if (restoredMetaSessionId.current === sessionId) {
+      return;
+    }
+
+    console.log("[AgentChatPage] 恢复会话元数据:", sessionId, sessionMeta);
+
+    // 从会话元数据恢复主题
+    if (sessionMeta.theme) {
+      const themeEntry = Object.entries(THEME_MAP).find(
+        ([_, v]) => v === sessionMeta.theme,
+      );
+      if (themeEntry) {
+        console.log("[AgentChatPage] 恢复主题:", themeEntry[0]);
+        setActiveTheme(themeEntry[0]);
+      }
+    }
+
+    // 从会话元数据恢复创建模式
+    if (sessionMeta.creationMode) {
+      console.log("[AgentChatPage] 恢复创建模式:", sessionMeta.creationMode);
+      setCreationMode(sessionMeta.creationMode as CreationMode);
+    }
+
+    restoredMetaSessionId.current = sessionId;
+  }, [sessionId, sessionMeta]);
+
+  // 当 sessionFiles 加载完成时，恢复文件到 taskFiles
+  useEffect(() => {
+    if (!sessionId || sessionFiles.length === 0) {
+      return;
+    }
+
+    // 避免重复恢复
+    if (restoredFilesSessionId.current === sessionId) {
+      return;
+    }
+
+    // 如果当前已有 taskFiles，说明是本次会话新生成的文件，不需要从持久化恢复
+    if (taskFiles.length > 0) {
+      restoredFilesSessionId.current = sessionId;
+      return;
+    }
+
+    console.log(
+      "[AgentChatPage] 开始恢复文件:",
+      sessionId,
+      sessionFiles.length,
+      "个文件",
+    );
+
+    // 恢复文件到 taskFiles
+    const restoreFiles = async () => {
+      const restoredFiles: TaskFile[] = [];
+
+      for (const file of sessionFiles) {
+        try {
+          const content = await readSessionFile(file.name);
+          if (content) {
+            restoredFiles.push({
+              id: crypto.randomUUID(),
+              name: file.name,
+              type: file.fileType === "document" ? "document" : "document",
+              content,
+              version: 1,
+              createdAt: file.createdAt,
+              updatedAt: file.updatedAt,
+            });
+          }
+        } catch (err) {
+          console.error("[AgentChatPage] 恢复文件失败:", file.name, err);
+        }
+      }
+
+      if (restoredFiles.length > 0) {
+        console.log(
+          "[AgentChatPage] 从持久化存储恢复",
+          restoredFiles.length,
+          "个文件",
+        );
+        setTaskFiles(restoredFiles);
+      }
+      restoredFilesSessionId.current = sessionId;
+    };
+
+    restoreFiles();
+  }, [sessionId, sessionFiles, readSessionFile, taskFiles.length]);
 
   // 包装 switchTopic，在切换话题时重置相关状态
   const switchTopic = useCallback(
@@ -182,6 +290,9 @@ export function AgentChatPage({
       setTaskFiles([]);
       setSelectedFileId(undefined);
       processedMessageIds.current.clear();
+      // 清空已恢复的会话 ID，以便新话题能触发恢复
+      restoredMetaSessionId.current = null;
+      restoredFilesSessionId.current = null;
 
       // 然后调用原始的 switchTopic
       await originalSwitchTopic(topicId);
@@ -307,6 +418,38 @@ export function AgentChatPage({
       setShowSidebar(false);
     }
   }, [hasMessages]);
+
+  // 当有文件时默认在画布中显示最后一个文件
+  useEffect(() => {
+    if (taskFiles.length > 0) {
+      const lastFile = taskFiles[taskFiles.length - 1];
+      // 设置选中的文件
+      setSelectedFileId(lastFile.id);
+      // 如果文件有内容，在画布中显示
+      if (lastFile.content) {
+        setCanvasState((prev) => {
+          if (mappedTheme === "music") {
+            const sections = parseLyrics(lastFile.content!);
+            if (!prev || prev.type !== "music") {
+              const musicState = createInitialMusicState();
+              musicState.sections = sections;
+              const titleMatch = lastFile.content!.match(/^#\s*(.+)$/m);
+              if (titleMatch) {
+                musicState.spec.title = titleMatch[1].trim();
+              }
+              return musicState;
+            }
+            return { ...prev, sections };
+          }
+          if (!prev || prev.type !== "document") {
+            return createInitialDocumentState(lastFile.content!);
+          }
+          return { ...prev, content: lastFile.content! };
+        });
+        setLayoutMode("chat-canvas");
+      }
+    }
+  }, [taskFiles, mappedTheme]);
 
   const handleToggleSidebar = () => {
     setShowSidebar(!showSidebar);
@@ -637,16 +780,6 @@ export function AgentChatPage({
 
       {hasMessages && (
         <>
-          {/* 任务文件列表 - 显示在输入框上方 */}
-          {taskFiles.length > 0 && (
-            <TaskFileList
-              files={taskFiles}
-              selectedFileId={selectedFileId}
-              onFileClick={handleTaskFileClick}
-              expanded={taskFilesExpanded}
-              onExpandedChange={setTaskFilesExpanded}
-            />
-          )}
           <Inputbar
             input={input}
             setInput={setInput}
@@ -657,6 +790,11 @@ export function AgentChatPage({
             onClearMessages={handleClearMessages}
             onToggleCanvas={handleToggleCanvas}
             isCanvasOpen={layoutMode === "chat-canvas"}
+            taskFiles={taskFiles}
+            selectedFileId={selectedFileId}
+            taskFilesExpanded={taskFilesExpanded}
+            onToggleTaskFiles={() => setTaskFilesExpanded(!taskFilesExpanded)}
+            onTaskFileClick={handleTaskFileClick}
           />
         </>
       )}
@@ -671,10 +809,18 @@ export function AgentChatPage({
       isSupported: isCanvasSupported(mappedTheme),
       layoutMode,
     });
-    if (canvasState && isCanvasSupported(mappedTheme)) {
+    // 只要有 canvasState 就显示画布（支持显示任意主题的文件）
+    if (canvasState) {
+      // 根据 canvasState.type 确定使用的主题
+      const effectiveTheme: ThemeType =
+        canvasState.type === "music"
+          ? "music"
+          : canvasState.type === "poster"
+            ? "poster"
+            : "document";
       return (
         <CanvasFactory
-          theme={mappedTheme}
+          theme={effectiveTheme}
           state={canvasState}
           onStateChange={setCanvasState}
           onClose={handleCloseCanvas}
