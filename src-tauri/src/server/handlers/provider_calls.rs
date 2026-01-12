@@ -59,13 +59,13 @@ use crate::models::anthropic::AnthropicMessagesRequest;
 use crate::models::openai::ChatCompletionRequest;
 use crate::models::provider_pool_model::{CredentialData, ProviderCredential};
 use crate::providers::{
-    AntigravityProvider, ClaudeCustomProvider, IFlowProvider, KiroProvider, OpenAICustomProvider,
-    VertexProvider,
+    AntigravityApiError, AntigravityProvider, ClaudeCustomProvider, IFlowProvider, KiroProvider,
+    OpenAICustomProvider, VertexProvider,
 };
 use crate::server::AppState;
 use crate::server_utils::{
-    build_anthropic_response, build_anthropic_stream_response, parse_cw_response, safe_truncate,
-    CWParsedResponse,
+    build_anthropic_response, build_anthropic_stream_response, build_error_response,
+    build_error_response_with_status, parse_cw_response, safe_truncate, CWParsedResponse,
 };
 use crate::stream::{PipelineConfig, StreamPipeline};
 use crate::streaming::traits::StreamingProvider;
@@ -439,20 +439,18 @@ pub async fn call_provider_anthropic(
                         build_anthropic_response(&request.model, &parsed)
                     }
                 }
-                Err(e) => {
+                Err(api_err) => {
                     // 记录 API 调用失败
                     if let Some(db) = &state.db {
                         let _ = state.pool_service.mark_unhealthy(
                             db,
                             &credential.uuid,
-                            Some(&e.to_string()),
+                            Some(&api_err.message),
                         );
                     }
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(serde_json::json!({"error": {"message": e.to_string()}})),
-                    )
-                        .into_response()
+                    
+                    // 直接使用 AntigravityApiError 的状态码构建响应
+                    build_error_response_with_status(api_err.status_code, &api_err.to_string())
                 }
             }
         }
@@ -1441,13 +1439,10 @@ pub async fn call_provider_openai(
                                         .into_response()
                                 });
                         }
-                        Err(e) => {
-                            tracing::error!("[ANTIGRAVITY_STREAM] 图片生成失败: {}", e);
-                            return (
-                                StatusCode::INTERNAL_SERVER_ERROR,
-                                Json(serde_json::json!({"error": {"message": e.to_string()}})),
-                            )
-                                .into_response();
+                        Err(api_err) => {
+                            tracing::error!("[ANTIGRAVITY_STREAM] 图片生成失败 (HTTP {}): {}", api_err.status_code, api_err.message);
+                            // 直接使用 AntigravityApiError 的状态码构建响应
+                            return build_error_response_with_status(api_err.status_code, &api_err.to_string());
                         }
                     }
                 }
@@ -1540,31 +1535,41 @@ pub async fn call_provider_openai(
                                     .into_response()
                             });
                     }
-                    Err(e) => {
-                        return (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(serde_json::json!({"error": {"message": e.to_string()}})),
-                        )
-                            .into_response();
+                    Err(provider_err) => {
+                        // call_api_stream 返回 ProviderError，使用字符串解析状态码
+                        return build_error_response(&provider_err.to_string());
                     }
                 }
             }
 
             // 非流式请求处理
+            eprintln!("[ANTIGRAVITY_OPENAI] ========== 开始处理非流式请求 ==========");
+            eprintln!("[ANTIGRAVITY_OPENAI] 模型: {}", request.model);
+            
             // 获取 project_id 用于请求
             let proj_id = antigravity.project_id.clone().unwrap_or_default();
+            eprintln!("[ANTIGRAVITY_OPENAI] 项目ID: {}", proj_id);
+            
             // 转换请求格式
+            eprintln!("[ANTIGRAVITY_OPENAI] 开始转换请求格式...");
             let antigravity_request = convert_openai_to_antigravity_with_context(request, &proj_id);
+            eprintln!("[ANTIGRAVITY_OPENAI] 请求格式转换完成");
+            
+            eprintln!("[ANTIGRAVITY_OPENAI] 调用 generate_content...");
             match antigravity.generate_content(&request.model, &antigravity_request).await {
                 Ok(resp) => {
+                    eprintln!("[ANTIGRAVITY_OPENAI] generate_content 返回成功");
                     let openai_response = convert_antigravity_to_openai_response(&resp, &request.model);
+                    eprintln!("[ANTIGRAVITY_OPENAI] ========== 非流式请求处理完成 ==========");
                     Json(openai_response).into_response()
                 }
-                Err(e) => (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({"error": {"message": e.to_string()}})),
-                )
-                    .into_response(),
+                Err(api_err) => {
+                    eprintln!("[ANTIGRAVITY_OPENAI] generate_content 失败 (HTTP {}): {}", api_err.status_code, api_err.message);
+                    eprintln!("[ANTIGRAVITY_OPENAI] ========== 非流式请求处理失败 ==========");
+                    
+                    // 直接使用 AntigravityApiError 的状态码构建响应
+                    build_error_response_with_status(api_err.status_code, &api_err.to_string())
+                }
             }
         }
         CredentialData::OpenAIKey { api_key, base_url } => {

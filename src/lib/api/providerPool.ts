@@ -580,6 +580,40 @@ export const providerPoolApi = {
   async getAllCredentialHealth(): Promise<CredentialHealthInfo[]> {
     return safeInvoke("get_all_credential_health");
   },
+
+  // ============ 模型管理 ============
+
+  // 获取凭证支持的模型列表（从数据库缓存）
+  async getCredentialModels(credentialUuid: string): Promise<string[]> {
+    return safeInvoke("get_credential_models", { credentialUuid });
+  },
+
+  // 刷新凭证的模型列表（从 Provider API 重新获取）
+  async refreshCredentialModels(credentialUuid: string): Promise<string[]> {
+    return safeInvoke("refresh_credential_models", { credentialUuid });
+  },
+
+  // 获取所有凭证的模型列表（按 Provider 类型分组）
+  async getAllModelsByProvider(): Promise<Record<string, string[]>> {
+    return safeInvoke("get_all_models_by_provider");
+  },
+
+  // 获取所有可用的模型列表（合并所有健康凭证的模型）
+  async getAllAvailableModels(): Promise<string[]> {
+    return safeInvoke("get_all_available_models");
+  },
+
+  // 批量刷新所有凭证的模型列表
+  async refreshAllCredentialModels(): Promise<
+    Record<string, { Ok?: string[]; Err?: string }>
+  > {
+    return safeInvoke("refresh_all_credential_models");
+  },
+
+  // 获取 Provider 的默认模型列表
+  async getDefaultModelsForProvider(providerType: string): Promise<string[]> {
+    return safeInvoke("get_default_models_for_provider", { providerType });
+  },
 };
 
 // Migration result

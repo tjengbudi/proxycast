@@ -17,11 +17,18 @@ pub fn create_tables(conn: &Connection) -> Result<(), rusqlite::Error> {
             project TEXT,
             location TEXT,
             region TEXT,
+            custom_models TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         )",
         [],
     )?;
+
+    // Migration: 添加 custom_models 列（如果不存在）
+    let _ = conn.execute(
+        "ALTER TABLE api_key_providers ADD COLUMN custom_models TEXT",
+        [],
+    );
 
     // 创建 api_key_providers 索引
     conn.execute(
@@ -216,6 +223,12 @@ pub fn create_tables(conn: &Connection) -> Result<(), rusqlite::Error> {
     // Migration: 添加凭证来源字段
     let _ = conn.execute(
         "ALTER TABLE provider_pool_credentials ADD COLUMN source TEXT DEFAULT 'manual'",
+        [],
+    );
+
+    // Migration: 添加支持的模型列表字段
+    let _ = conn.execute(
+        "ALTER TABLE provider_pool_credentials ADD COLUMN supported_models TEXT",
         [],
     );
 

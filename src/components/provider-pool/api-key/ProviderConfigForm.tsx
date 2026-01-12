@@ -86,6 +86,7 @@ interface FormState {
   project: string;
   location: string;
   region: string;
+  customModels: string;
 }
 
 // ============================================================================
@@ -125,6 +126,7 @@ export const ProviderConfigForm: React.FC<ProviderConfigFormProps> = ({
     project: provider.project || "",
     location: provider.location || "",
     region: provider.region || "",
+    customModels: (provider.custom_models || []).join(", "),
   });
 
   // 保存状态
@@ -143,6 +145,7 @@ export const ProviderConfigForm: React.FC<ProviderConfigFormProps> = ({
       project: provider.project || "",
       location: provider.location || "",
       region: provider.region || "",
+      customModels: (provider.custom_models || []).join(", "),
     });
     setSaveError(null);
   }, [
@@ -152,6 +155,7 @@ export const ProviderConfigForm: React.FC<ProviderConfigFormProps> = ({
     provider.project,
     provider.location,
     provider.region,
+    provider.custom_models,
   ]);
 
   // 保存配置
@@ -163,12 +167,19 @@ export const ProviderConfigForm: React.FC<ProviderConfigFormProps> = ({
       setSaveError(null);
 
       try {
+        // 解析自定义模型列表（逗号分隔）
+        const customModels = state.customModels
+          .split(",")
+          .map((m) => m.trim())
+          .filter((m) => m.length > 0);
+
         const request: UpdateProviderRequest = {
           api_host: state.apiHost || undefined,
           api_version: state.apiVersion || undefined,
           project: state.project || undefined,
           location: state.location || undefined,
           region: state.region || undefined,
+          custom_models: customModels.length > 0 ? customModels : undefined,
         };
 
         await onUpdate(provider.id, request);
@@ -329,6 +340,25 @@ export const ProviderConfigForm: React.FC<ProviderConfigFormProps> = ({
           </p>
         </div>
       )}
+
+      {/* 自定义模型列表 */}
+      <div className="space-y-1.5">
+        <Label htmlFor="custom-models" className="text-sm font-medium">
+          自定义模型
+        </Label>
+        <Input
+          id="custom-models"
+          type="text"
+          value={formState.customModels}
+          onChange={(e) => handleFieldChange("customModels", e.target.value)}
+          placeholder="glm-4, glm-4-flash, glm-4.7"
+          disabled={loading || isSaving}
+          data-testid="custom-models-input"
+        />
+        <p className="text-xs text-muted-foreground">
+          该 Provider 支持的模型列表，用逗号分隔。用于不支持 /models 接口的 Provider（如智谱）
+        </p>
+      </div>
 
       {/* 保存状态指示 */}
       <div className="flex items-center justify-between text-xs">

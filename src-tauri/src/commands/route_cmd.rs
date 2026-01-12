@@ -5,6 +5,45 @@ use crate::config;
 use crate::database::DbConnection;
 use crate::models::route_model::{RouteInfo, RouteListResponse};
 
+/// 获取有效的服务器地址
+/// 如果配置的 IP 不在当前网卡列表中，自动替换为当前的局域网 IP
+fn get_valid_base_url(config: &config::Config) -> String {
+    let configured_host = &config.server.host;
+    let port = config.server.port;
+    
+    // 特殊地址不需要检查
+    if configured_host == "127.0.0.1" || configured_host == "localhost" {
+        return format!("http://{}:{}", configured_host, port);
+    }
+    
+    // 0.0.0.0 或其他 IP 需要检查
+    if let Ok(network_info) = crate::commands::network_cmd::get_network_info() {
+        let host = if configured_host == "0.0.0.0" {
+            // 0.0.0.0 替换为局域网 IP
+            network_info.all_ips.iter()
+                .find(|ip| ip.starts_with("192.168.") || ip.starts_with("10."))
+                .or_else(|| network_info.lan_ip.as_ref())
+                .or_else(|| network_info.all_ips.first())
+                .cloned()
+                .unwrap_or_else(|| "localhost".to_string())
+        } else if network_info.all_ips.contains(configured_host) {
+            // IP 在当前网卡列表中，使用配置的 IP
+            configured_host.clone()
+        } else {
+            // IP 不在当前网卡列表中，替换为局域网 IP
+            network_info.all_ips.iter()
+                .find(|ip| ip.starts_with("192.168.") || ip.starts_with("10."))
+                .or_else(|| network_info.lan_ip.as_ref())
+                .or_else(|| network_info.all_ips.first())
+                .cloned()
+                .unwrap_or_else(|| "localhost".to_string())
+        };
+        format!("http://{}:{}", host, port)
+    } else {
+        format!("http://{}:{}", configured_host, port)
+    }
+}
+
 /// 获取所有可用的路由端点
 #[tauri::command]
 pub async fn get_available_routes(
@@ -13,7 +52,7 @@ pub async fn get_available_routes(
 ) -> Result<RouteListResponse, String> {
     // 获取配置中的服务器地址和默认 Provider
     let config = config::load_config().unwrap_or_default();
-    let base_url = format!("http://{}:{}", config.server.host, config.server.port);
+    let base_url = get_valid_base_url(&config);
     let default_provider = config.default_provider.clone();
 
     let routes = pool_service
@@ -58,7 +97,7 @@ pub async fn get_route_curl_examples(
     pool_service: tauri::State<'_, ProviderPoolServiceState>,
 ) -> Result<Vec<crate::models::route_model::CurlExample>, String> {
     let config = config::load_config().unwrap_or_default();
-    let base_url = format!("http://{}:{}", config.server.host, config.server.port);
+    let base_url = get_valid_base_url(&config);
     let default_provider = config.default_provider.clone();
 
     let routes = pool_service

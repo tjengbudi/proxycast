@@ -242,6 +242,7 @@ impl ApiKeyProviderService {
             project,
             location,
             region,
+            custom_models: Vec::new(),
             created_at: now,
             updated_at: now,
         };
@@ -265,6 +266,7 @@ impl ApiKeyProviderService {
         project: Option<String>,
         location: Option<String>,
         region: Option<String>,
+        custom_models: Option<Vec<String>>,
     ) -> Result<ApiKeyProvider, String> {
         let conn = db.lock().map_err(|e| e.to_string())?;
         let mut provider = ApiKeyProviderDao::get_provider_by_id(&conn, id)
@@ -295,6 +297,9 @@ impl ApiKeyProviderService {
         }
         if let Some(r) = region {
             provider.region = if r.is_empty() { None } else { Some(r) };
+        }
+        if let Some(models) = custom_models {
+            provider.custom_models = models;
         }
         provider.updated_at = Utc::now();
 
@@ -1085,6 +1090,7 @@ impl ApiKeyProviderService {
             check_health: false,
             check_model_name: None,
             not_supported_models: Vec::new(),
+            supported_models: Vec::new(),
             usage_count: 0,
             error_count: 0,
             last_used: None,
@@ -1142,6 +1148,7 @@ impl ApiKeyProviderService {
             check_health: false, // 降级凭证不参与健康检查
             check_model_name: None,
             not_supported_models: Vec::new(),
+            supported_models: Vec::new(),
             usage_count: 0,
             error_count: 0,
             last_used: None,

@@ -54,16 +54,34 @@ impl OpenAICustomProvider {
     }
 
     /// 构建完整的 API URL
-    /// 智能处理用户输入的 base_url，无论是否带 /v1 都能正确工作
+    /// 智能处理用户输入的 base_url，支持多种 API 版本格式
+    /// 
+    /// 支持的格式：
+    /// - `https://api.openai.com` -> `https://api.openai.com/v1/chat/completions`
+    /// - `https://api.openai.com/v1` -> `https://api.openai.com/v1/chat/completions`
+    /// - `https://open.bigmodel.cn/api/paas/v4` -> `https://open.bigmodel.cn/api/paas/v4/chat/completions`
+    /// - `https://api.deepseek.com/v1` -> `https://api.deepseek.com/v1/chat/completions`
     fn build_url(&self, endpoint: &str) -> String {
         let base = self.get_base_url();
         let base = base.trim_end_matches('/');
 
-        // 如果用户输入了带 /v1 的 URL，直接拼接 endpoint
-        // 否则拼接 /v1/endpoint
-        if base.ends_with("/v1") {
+        // 检查是否已经包含版本号路径（/v1, /v2, /v3, /v4 等）
+        // 使用正则匹配 /v 后跟数字的模式
+        let has_version = base
+            .rsplit('/')
+            .next()
+            .map(|last_segment| {
+                last_segment.starts_with('v')
+                    && last_segment.len() >= 2
+                    && last_segment[1..].chars().all(|c| c.is_ascii_digit())
+            })
+            .unwrap_or(false);
+
+        if has_version {
+            // 已有版本号，直接拼接 endpoint
             format!("{}/{}", base, endpoint)
         } else {
+            // 没有版本号，添加 /v1
             format!("{}/v1/{}", base, endpoint)
         }
     }
@@ -104,6 +122,9 @@ impl OpenAICustomProvider {
             .ok_or("OpenAI API key not configured")?;
 
         let url = self.build_url("chat/completions");
+        
+        eprintln!("[OPENAI_CUSTOM] chat_completions URL: {}", url);
+        eprintln!("[OPENAI_CUSTOM] chat_completions base_url: {}", self.get_base_url());
 
         let resp = self
             .client
@@ -125,6 +146,8 @@ impl OpenAICustomProvider {
             .ok_or("OpenAI API key not configured")?;
 
         let url = self.build_url("models");
+        
+        eprintln!("[OPENAI_CUSTOM] list_models URL: {}", url);
 
         let resp = self
             .client
@@ -136,6 +159,7 @@ impl OpenAICustomProvider {
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
+            eprintln!("[OPENAI_CUSTOM] list_models 失败: {} - {}", status, body);
             return Err(format!("Failed to list models: {status} - {body}").into());
         }
 

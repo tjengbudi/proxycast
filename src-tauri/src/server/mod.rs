@@ -25,8 +25,8 @@ use crate::providers::kiro::KiroProvider;
 use crate::providers::openai_custom::OpenAICustomProvider;
 use crate::providers::qwen::QwenProvider;
 use crate::server_utils::{
-    build_anthropic_response, build_anthropic_stream_response, build_gemini_native_request, health,
-    models, parse_cw_response,
+    build_anthropic_response, build_anthropic_stream_response, build_error_response,
+    build_error_response_with_status, build_gemini_native_request, health, models, parse_cw_response,
 };
 use crate::services::kiro_event_service::KiroEventService;
 use crate::services::provider_pool_service::ProviderPoolService;
@@ -171,6 +171,8 @@ pub struct ServerState {
     /// 服务器运行时使用的 API key（启动时从配置复制）
     /// 用于 test_api 命令，确保测试使用的 API key 和服务器一致
     pub running_api_key: Option<String>,
+    /// 服务器实际监听的 host（可能与配置不同，因为会自动切换到有效的 IP）
+    pub running_host: Option<String>,
 }
 
 impl ServerState {
@@ -196,13 +198,15 @@ impl ServerState {
             router_ref: None,
             shutdown_tx: None,
             running_api_key: None,
+            running_host: None,
         }
     }
 
     pub fn status(&self) -> ServerStatus {
         ServerStatus {
             running: self.running,
-            host: self.config.server.host.clone(),
+            // 使用实际运行的 host，如果没有则使用配置的 host
+            host: self.running_host.clone().unwrap_or_else(|| self.config.server.host.clone()),
             port: self.config.server.port,
             requests: self.requests,
             uptime_secs: self.start_time.map(|t| t.elapsed().as_secs()).unwrap_or(0),
@@ -277,7 +281,48 @@ impl ServerState {
         let (tx, rx) = oneshot::channel();
         self.shutdown_tx = Some(tx);
 
-        let host = self.config.server.host.clone();
+        // 检查配置的 host 是否有效（在当前网卡列表中或是特殊地址）
+        let host = {
+            let configured_host = &self.config.server.host;
+            
+            // 特殊地址不需要检查
+            if configured_host == "0.0.0.0" || configured_host == "127.0.0.1" || configured_host == "localhost" {
+                configured_host.clone()
+            } else {
+                // 检查 IP 是否在当前网卡列表中
+                match crate::commands::network_cmd::get_network_info() {
+                    Ok(network_info) => {
+                        if network_info.all_ips.contains(configured_host) {
+                            configured_host.clone()
+                        } else {
+                            // IP 不在当前网卡列表中，使用当前的局域网 IP
+                            // 优先选择 192.168.x.x 或 10.x.x.x 开头的 IP（真正的局域网 IP）
+                            let preferred_ip = network_info.all_ips.iter()
+                                .find(|ip| ip.starts_with("192.168.") || ip.starts_with("10."));
+                            
+                            let new_ip = preferred_ip
+                                .or_else(|| network_info.lan_ip.as_ref())
+                                .or_else(|| network_info.all_ips.first())
+                                .cloned()
+                                .unwrap_or_else(|| "127.0.0.1".to_string());
+                            
+                            tracing::warn!(
+                                "[SERVER] 配置的 IP {} 不在当前网卡列表中，自动切换到 {}",
+                                configured_host, new_ip
+                            );
+                            eprintln!(
+                                "[SERVER] 警告：配置的 IP {} 不在当前网卡列表中，自动切换到 {}",
+                                configured_host, new_ip
+                            );
+                            new_ip
+                        }
+                    }
+                    Err(_) => {
+                        configured_host.clone()
+                    }
+                }
+            }
+        };
         let port = self.config.server.port;
         let api_key = self.config.server.api_key.clone();
         let api_key_for_state = api_key.clone(); // 用于保存到 running_api_key
@@ -346,6 +391,9 @@ impl ServerState {
         // 保存 router_ref 以便后续动态更新
         self.router_ref = Some(processor.router.clone());
 
+        // 保存实际使用的 host（在移动到 spawn 之前克隆）
+        let running_host = host.clone();
+
         tokio::spawn(async move {
             if let Err(e) = run_server(
                 &host,
@@ -379,6 +427,8 @@ impl ServerState {
         self.start_time = Some(std::time::Instant::now());
         // 保存服务器运行时使用的 API key，用于 test_api 命令
         self.running_api_key = Some(api_key_for_state);
+        // 保存服务器实际监听的 host（可能与配置不同）
+        self.running_host = Some(running_host);
         Ok(())
     }
 
@@ -389,6 +439,7 @@ impl ServerState {
         self.running = false;
         self.start_time = None;
         self.running_api_key = None;
+        self.running_host = None;
         self.router_ref = None;
     }
 }
@@ -1275,22 +1326,15 @@ async fn gemini_generate_content(
                     // 直接返回 Gemini 格式响应
                     Json(resp).into_response()
                 }
-                Err(e) => {
+                Err(api_err) => {
                     state
                         .logs
                         .write()
                         .await
-                        .add("error", &format!("[GEMINI] 请求失败: {}", e));
+                        .add("error", &format!("[GEMINI] 请求失败 (HTTP {}): {}", api_err.status_code, api_err.message));
 
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(serde_json::json!({
-                            "error": {
-                                "message": e.to_string()
-                            }
-                        })),
-                    )
-                        .into_response()
+                    // 直接使用 AntigravityApiError 的状态码构建响应
+                    build_error_response_with_status(api_err.status_code, &api_err.to_string())
                 }
             }
         }
@@ -1308,10 +1352,49 @@ async fn gemini_generate_content(
 
 /// 列出所有可用路由
 async fn list_routes(State(state): State<AppState>) -> impl IntoResponse {
+    // 处理 base_url：检查 IP 是否有效（在当前网卡列表中或是特殊地址）
+    let display_base_url = {
+        // 从 base_url 中提取 host 部分
+        let url_parts: Vec<&str> = state.base_url.split("://").collect();
+        let host_port = if url_parts.len() > 1 { url_parts[1] } else { &state.base_url };
+        let host = host_port.split(':').next().unwrap_or("localhost");
+        
+        // 检查是否需要替换 IP
+        let should_replace = if host == "0.0.0.0" || host == "127.0.0.1" || host == "localhost" {
+            // 0.0.0.0 需要替换为局域网 IP，127.0.0.1 和 localhost 保持不变
+            host == "0.0.0.0"
+        } else {
+            // 检查 IP 是否在当前网卡列表中
+            if let Ok(network_info) = crate::commands::network_cmd::get_network_info() {
+                !network_info.all_ips.contains(&host.to_string())
+            } else {
+                false
+            }
+        };
+        
+        if should_replace {
+            // 获取局域网 IP 进行替换
+            // 优先选择 192.168.x.x 或 10.x.x.x 开头的 IP（真正的局域网 IP）
+            if let Ok(network_info) = crate::commands::network_cmd::get_network_info() {
+                let new_ip = network_info.all_ips.iter()
+                    .find(|ip| ip.starts_with("192.168.") || ip.starts_with("10."))
+                    .or_else(|| network_info.lan_ip.as_ref())
+                    .or_else(|| network_info.all_ips.first())
+                    .cloned()
+                    .unwrap_or_else(|| "localhost".to_string());
+                state.base_url.replace(host, &new_ip)
+            } else {
+                state.base_url.replace(host, "localhost")
+            }
+        } else {
+            state.base_url.clone()
+        }
+    };
+
     let routes = match &state.db {
         Some(db) => state
             .pool_service
-            .get_available_routes(db, &state.base_url)
+            .get_available_routes(db, &display_base_url)
             .unwrap_or_default(),
         None => Vec::new(),
     };
@@ -1328,12 +1411,12 @@ async fn list_routes(State(state): State<AppState>) -> impl IntoResponse {
             crate::models::route_model::RouteEndpoint {
                 path: "/v1/messages".to_string(),
                 protocol: "claude".to_string(),
-                url: format!("{}/v1/messages", state.base_url),
+                url: format!("{}/v1/messages", display_base_url),
             },
             crate::models::route_model::RouteEndpoint {
                 path: "/v1/chat/completions".to_string(),
                 protocol: "openai".to_string(),
-                url: format!("{}/v1/chat/completions", state.base_url),
+                url: format!("{}/v1/chat/completions", display_base_url),
             },
         ],
         tags: vec!["默认".to_string()],
@@ -1342,7 +1425,7 @@ async fn list_routes(State(state): State<AppState>) -> impl IntoResponse {
     all_routes.extend(routes);
 
     let response = RouteListResponse {
-        base_url: state.base_url.clone(),
+        base_url: display_base_url,
         default_provider,
         routes: all_routes,
     };

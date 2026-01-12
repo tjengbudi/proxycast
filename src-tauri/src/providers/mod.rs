@@ -19,6 +19,8 @@ mod tests;
 pub use traits::{CredentialProvider, ProviderResult, TokenManager};
 
 #[allow(unused_imports)]
+pub use antigravity::AntigravityApiError;
+#[allow(unused_imports)]
 pub use antigravity::AntigravityProvider;
 #[allow(unused_imports)]
 pub use antigravity::ANTIGRAVITY_MODELS_FALLBACK;

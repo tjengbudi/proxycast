@@ -12,6 +12,90 @@ use axum::{
 use futures::stream;
 use std::collections::HashMap;
 
+/// 从错误信息中解析 HTTP 状态码
+///
+/// 用于将上游 API 返回的错误状态码透传给客户端，而不是统一返回 500。
+/// 支持解析常见的 HTTP 状态码：429、403、401、404、400、503、502、500。
+///
+/// # 参数
+/// - `error_message`: 错误信息字符串，通常包含状态码（如 "API call failed: 429 - ..."）
+///
+/// # 返回
+/// 解析出的 HTTP 状态码，如果无法解析则返回 500 INTERNAL_SERVER_ERROR
+///
+/// # 示例
+/// ```
+/// let status = parse_error_status_code("API call failed: 429 Too Many Requests");
+/// assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+/// ```
+pub fn parse_error_status_code(error_message: &str) -> StatusCode {
+    if error_message.contains("429") {
+        StatusCode::TOO_MANY_REQUESTS
+    } else if error_message.contains("403") {
+        StatusCode::FORBIDDEN
+    } else if error_message.contains("401") {
+        StatusCode::UNAUTHORIZED
+    } else if error_message.contains("404") {
+        StatusCode::NOT_FOUND
+    } else if error_message.contains("400") {
+        StatusCode::BAD_REQUEST
+    } else if error_message.contains("503") {
+        StatusCode::SERVICE_UNAVAILABLE
+    } else if error_message.contains("502") {
+        StatusCode::BAD_GATEWAY
+    } else if error_message.contains("500") {
+        StatusCode::INTERNAL_SERVER_ERROR
+    } else {
+        StatusCode::INTERNAL_SERVER_ERROR
+    }
+}
+
+/// 构建错误响应
+///
+/// 从错误信息中解析状态码并构建标准的 JSON 错误响应。
+///
+/// # 参数
+/// - `error_message`: 错误信息字符串
+///
+/// # 返回
+/// 包含正确状态码的 HTTP 响应
+pub fn build_error_response(error_message: &str) -> Response {
+    let status_code = parse_error_status_code(error_message);
+    (
+        status_code,
+        Json(serde_json::json!({
+            "error": {
+                "message": error_message
+            }
+        })),
+    )
+        .into_response()
+}
+
+/// 从 HTTP 状态码构建错误响应
+///
+/// 直接使用状态码构建响应，无需解析字符串。
+/// 适用于已知状态码的场景（如 AntigravityApiError）。
+///
+/// # 参数
+/// - `status_code`: HTTP 状态码（u16）
+/// - `error_message`: 错误信息字符串
+///
+/// # 返回
+/// 包含指定状态码的 HTTP 响应
+pub fn build_error_response_with_status(status_code: u16, error_message: &str) -> Response {
+    let status = StatusCode::from_u16(status_code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    (
+        status,
+        Json(serde_json::json!({
+            "error": {
+                "message": error_message
+            }
+        })),
+    )
+        .into_response()
+}
+
 /// CodeWhisperer 响应解析结果
 #[derive(Debug, Default)]
 pub struct CWParsedResponse {
@@ -620,7 +704,7 @@ pub async fn health() -> impl IntoResponse {
     }))
 }
 
-/// 模型列表端点响应
+/// 模型列表端点响应（静态列表，用于不指定凭证的情况）
 pub async fn models() -> impl IntoResponse {
     Json(serde_json::json!({
         "object": "list",

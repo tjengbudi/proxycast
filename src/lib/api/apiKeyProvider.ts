@@ -38,6 +38,8 @@ export interface UpdateProviderRequest {
   project?: string;
   location?: string;
   region?: string;
+  /** 自定义模型列表 */
+  custom_models?: string[];
 }
 
 /**
@@ -69,6 +71,8 @@ export interface ProviderDisplay {
   project?: string;
   location?: string;
   region?: string;
+  /** 自定义模型列表 */
+  custom_models?: string[];
   api_key_count: number;
   created_at: string;
   updated_at: string;

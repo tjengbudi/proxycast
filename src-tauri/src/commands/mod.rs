@@ -10,6 +10,7 @@ pub mod injection_cmd;
 pub mod kiro_local;
 pub mod machine_id_cmd;
 pub mod mcp_cmd;
+pub mod model_cmd;
 pub mod model_registry_cmd;
 pub mod models_cmd;
 pub mod music_cmd;

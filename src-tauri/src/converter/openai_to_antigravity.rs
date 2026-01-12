@@ -273,8 +273,17 @@ pub fn convert_openai_to_antigravity_with_context(
     request: &ChatCompletionRequest,
     project_id: &str,
 ) -> serde_json::Value {
+    eprintln!("========== [CONVERT] OpenAI -> Antigravity 转换开始 ==========");
+    eprintln!("[CONVERT] 原始模型: {}", request.model);
+    eprintln!("[CONVERT] 项目ID: {}", project_id);
+    eprintln!("[CONVERT] 消息数量: {}", request.messages.len());
+    eprintln!("[CONVERT] 流式: {}", request.stream);
+    
     let actual_model = model_mapping(&request.model);
+    eprintln!("[CONVERT] 映射后模型: {}", actual_model);
+    
     let supports_thinking = model_supports_thinking(actual_model);
+    eprintln!("[CONVERT] 支持思维链: {}", supports_thinking);
 
     let mut contents: Vec<GeminiContent> = Vec::new();
     let mut system_instruction: Option<GeminiContent> = None;
@@ -656,13 +665,18 @@ pub fn convert_openai_to_antigravity_with_context(
     };
 
     // 构建完整的 Antigravity 请求体
-    serde_json::json!({
+    let result = serde_json::json!({
         "project": project_id,
         "requestId": generate_request_id(),
         "request": inner,
         "model": actual_model,
         "userAgent": "antigravity"
-    })
+    });
+    
+    eprintln!("[CONVERT] 转换后的请求体: {}", serde_json::to_string_pretty(&result).unwrap_or_default());
+    eprintln!("========== [CONVERT] OpenAI -> Antigravity 转换完成 ==========");
+    
+    result
 }
 
 // ============================================================================

@@ -109,6 +109,34 @@ export function ApiServerPage() {
     }
   };
 
+  const loadNetworkInfo = async () => {
+    try {
+      const info = await getNetworkInfo();
+      setNetworkInfo(info);
+      
+      // 如果配置的 host 不在当前网卡列表中（且不是 127.0.0.1 或 0.0.0.0），
+      // 自动更新为当前的局域网 IP
+      if (config && editHost) {
+        const isValidHost = 
+          editHost === "127.0.0.1" ||
+          editHost === "0.0.0.0" ||
+          info.all_ips.includes(editHost);
+        
+        if (!isValidHost && info.all_ips.length > 0) {
+          // 选择第一个局域网 IP（通常是 192.168.x.x 或 10.x.x.x）
+          const lanIp = info.all_ips.find(ip => 
+            ip.startsWith("192.168.") || ip.startsWith("10.")
+          ) || info.all_ips[0];
+          
+          console.log(`配置的 IP ${editHost} 不在当前网卡列表中，自动更新为 ${lanIp}`);
+          setEditHost(lanIp);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to get network info:", e);
+    }
+  };
+
   useEffect(() => {
     fetchStatus();
     fetchConfig();
@@ -116,19 +144,32 @@ export function ApiServerPage() {
     loadNetworkInfo();
 
     const statusInterval = setInterval(fetchStatus, 3000);
-    return () => clearInterval(statusInterval);
+    // 定期刷新网络信息，以便检测 IP 变化
+    const networkInterval = setInterval(loadNetworkInfo, 5000);
+    return () => {
+      clearInterval(statusInterval);
+      clearInterval(networkInterval);
+    };
   }, []);
 
-  const loadNetworkInfo = async () => {
-    try {
-      const info = await getNetworkInfo();
-      setNetworkInfo(info);
-    } catch (e) {
-      console.error("Failed to get network info:", e);
+  // 当 config 和 editHost 加载完成后，检查并更新网络信息
+  useEffect(() => {
+    if (config && editHost && networkInfo) {
+      const isValidHost = 
+        editHost === "127.0.0.1" ||
+        editHost === "0.0.0.0" ||
+        networkInfo.all_ips.includes(editHost);
+      
+      if (!isValidHost && networkInfo.all_ips.length > 0) {
+        const lanIp = networkInfo.all_ips.find(ip => 
+          ip.startsWith("192.168.") || ip.startsWith("10.")
+        ) || networkInfo.all_ips[0];
+        
+        console.log(`配置的 IP ${editHost} 不在当前网卡列表中，自动更新为 ${lanIp}`);
+        setEditHost(lanIp);
+      }
     }
-  };
-
-  const loadDefaultProvider = async () => {
+  }, [config, networkInfo]);  const loadDefaultProvider = async () => {
     try {
       const dp = await getDefaultProvider();
       setDefaultProviderState(dp);
@@ -143,6 +184,8 @@ export function ApiServerPage() {
     try {
       await reloadCredentials();
       await startServer();
+      // 等待服务器完全启动
+      await new Promise((resolve) => setTimeout(resolve, 500));
       await fetchStatus();
       setMessage({ type: "success", text: "服务已启动" });
     } catch (e: unknown) {
@@ -408,14 +451,13 @@ export function ApiServerPage() {
 
   const handleSetDefaultProvider = async (providerId: string) => {
     try {
-      await setDefaultProvider(providerId);
+      // 先更新 UI 状态，提供即时反馈
       setDefaultProviderState(providerId);
+      
+      // 异步调用后端
+      await setDefaultProvider(providerId);
 
-      // 获取最新的凭证池数据
-      const freshOverview = await providerPoolApi.getOverview();
-      setPoolOverview(freshOverview);
-
-      // 获取该 Provider 的凭证信息
+      // 获取该 Provider 的凭证信息（用于显示消息）
       const provider = availableProviders.find((p) => p.id === providerId);
       const label = providerLabels[providerId] || providerId;
 
@@ -434,33 +476,78 @@ export function ApiServerPage() {
       } else {
         setProviderSwitchMsg(`已切换到 ${label}`);
       }
+
+      // 在后台异步刷新凭证池数据，不阻塞 UI
+      providerPoolApi.getOverview().then(setPoolOverview).catch(console.error);
     } catch (e: unknown) {
       const errMsg = e instanceof Error ? e.message : String(e);
       setProviderSwitchMsg(`切换失败: ${errMsg}`);
+      // 切换失败时恢复原来的状态
+      loadDefaultProvider();
     }
   };
 
   // 根据监听地址智能选择测试 URL
   // - 127.0.0.1: 使用 127.0.0.1（仅本机）
-  // - 0.0.0.0: 使用 127.0.0.1（本机访问所有接口）
+  // - 0.0.0.0: 使用当前局域网 IP（优先 192.168.x.x 或 10.x.x.x）
   // - 局域网 IP: 使用该 IP（允许局域网测试）
   const getTestUrl = (host: string, port: number) => {
     if (host === "0.0.0.0") {
-      return `http://127.0.0.1:${port}`;
+      // 0.0.0.0 时，使用当前局域网 IP 以便局域网设备访问
+      const lanIp = networkInfo?.all_ips.find(ip => 
+        ip.startsWith("192.168.") || ip.startsWith("10.")
+      ) || networkInfo?.all_ips[0] || "127.0.0.1";
+      return `http://${lanIp}:${port}`;
     }
     return `http://${host}:${port}`;
   };
 
   // 使用 editHost 而不是 status.host，这样可以实时反映用户的选择
-  const currentHost = status?.running ? status.host : editHost;
+  // 同时检查配置的 IP 是否仍然有效（在当前网卡列表中）
+  const getValidHost = () => {
+    const host = status?.running ? status.host : editHost;
+    // 如果是特殊地址，直接返回
+    if (host === "127.0.0.1" || host === "0.0.0.0") {
+      return host;
+    }
+    // 检查配置的 IP 是否在当前网卡列表中
+    if (networkInfo?.all_ips && !networkInfo.all_ips.includes(host)) {
+      // IP 已失效，返回当前有效的局域网 IP
+      return networkInfo.all_ips.find(ip => 
+        ip.startsWith("192.168.") || ip.startsWith("10.")
+      ) || networkInfo.all_ips[0] || host;
+    }
+    return host;
+  };
+
+  const currentHost = getValidHost();
   const currentPort = status?.running
     ? status.port
     : parseInt(editPort) || 8999;
   const serverUrl = getTestUrl(currentHost, currentPort);
   const apiKey = config?.server.api_key ?? "";
 
+  // 获取当前选中 Provider 的自定义模型列表
+  const getCurrentProviderCustomModels = (): string[] => {
+    // 先从 API Key Provider 中查找
+    const apiKeyProvider = apiKeyProviders.find(
+      (p) => p.id === defaultProvider && p.enabled
+    );
+    if (apiKeyProvider?.custom_models && apiKeyProvider.custom_models.length > 0) {
+      return apiKeyProvider.custom_models;
+    }
+    return [];
+  };
+
   // 根据 Provider 类型获取测试模型
   const getTestModel = (provider: string): string => {
+    // 优先使用自定义模型列表中的第一个模型
+    const customModels = getCurrentProviderCustomModels();
+    if (customModels.length > 0) {
+      return customModels[0];
+    }
+
+    // 否则使用默认模型
     switch (provider) {
       case "antigravity":
         return "gemini-3-pro-preview";
@@ -474,6 +561,8 @@ export function ApiServerPage() {
         return "claude-sonnet-4-20250514";
       case "deepseek":
         return "deepseek-chat";
+      case "zhipu":
+        return "glm-4";
       case "kiro":
       default:
         return "claude-opus-4-5-20251101";
@@ -481,6 +570,7 @@ export function ApiServerPage() {
   };
 
   const testModel = getTestModel(defaultProvider);
+  const customModels = getCurrentProviderCustomModels();
 
   // 根据 Provider 类型获取 Gemini 测试模型列表
   const getGeminiTestModels = (provider: string): string[] => {
@@ -525,7 +615,7 @@ export function ApiServerPage() {
     },
     {
       id: "chat",
-      name: "OpenAI Chat",
+      name: `OpenAI Chat (${testModel})`,
       method: "POST",
       path: "/v1/chat/completions",
       needsAuth: true,
@@ -534,9 +624,23 @@ export function ApiServerPage() {
         messages: [{ role: "user", content: "Say hi in one word" }],
       }),
     },
+    // 为自定义模型列表中的其他模型生成测试端点
+    ...(customModels.length > 1
+      ? customModels.slice(1).map((model, index) => ({
+          id: `custom-model-${index}`,
+          name: `OpenAI Chat (${model})`,
+          method: "POST",
+          path: "/v1/chat/completions",
+          needsAuth: true,
+          body: JSON.stringify({
+            model: model,
+            messages: [{ role: "user", content: "Say hi in one word" }],
+          }),
+        }))
+      : []),
     {
       id: "anthropic",
-      name: "Anthropic Messages",
+      name: `Anthropic Messages (${testModel})`,
       method: "POST",
       path: "/v1/messages",
       needsAuth: true,
@@ -599,10 +703,7 @@ export function ApiServerPage() {
         },
       }));
 
-      // 测试成功后立即刷新凭证池数据，更新使用次数
-      if (result.success) {
-        await loadPoolOverview();
-      }
+      return result.success;
     } catch (e: unknown) {
       const errMsg = e instanceof Error ? e.message : String(e);
       setTestResults((prev) => ({
@@ -613,12 +714,21 @@ export function ApiServerPage() {
           response: `请求失败: ${errMsg}`,
         },
       }));
+      return false;
     }
   };
 
   const runAllTests = async () => {
+    let hasSuccess = false;
     for (const endpoint of testEndpoints) {
-      await runTest(endpoint);
+      const success = await runTest(endpoint);
+      if (success) {
+        hasSuccess = true;
+      }
+    }
+    // 所有测试完成后，如果有成功的测试，刷新一次凭证池数据
+    if (hasSuccess) {
+      await loadPoolOverview();
     }
   };
 
@@ -811,6 +921,30 @@ export function ApiServerPage() {
                               </Select.ItemText>
                             </Select.Item>
                           ))}
+
+                          {/* 当前值不在预定义选项中时，显示为自定义选项 */}
+                          {editHost &&
+                            editHost !== "127.0.0.1" &&
+                            editHost !== "0.0.0.0" &&
+                            !(networkInfo?.all_ips.includes(editHost) ?? false) && (
+                              <Select.Item
+                                key={editHost}
+                                value={editHost}
+                                className="relative flex cursor-pointer select-none items-center rounded-sm px-8 py-2.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+                              >
+                                <Select.ItemIndicator className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+                                  <Check className="h-4 w-4" />
+                                </Select.ItemIndicator>
+                                <Select.ItemText>
+                                  <span className="flex items-center gap-2">
+                                    <span className="font-mono">{editHost}</span>
+                                    <span className="text-xs text-muted-foreground">
+                                      (自定义)
+                                    </span>
+                                  </span>
+                                </Select.ItemText>
+                              </Select.Item>
+                            )}
                         </Select.Viewport>
                       </Select.Content>
                     </Select.Portal>

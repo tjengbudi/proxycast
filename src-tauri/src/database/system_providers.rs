@@ -626,6 +626,7 @@ pub fn to_api_key_provider(def: &SystemProviderDef) -> ApiKeyProvider {
         project: None,
         location: None,
         region: None,
+        custom_models: Vec::new(),
         created_at: now,
         updated_at: now,
     }

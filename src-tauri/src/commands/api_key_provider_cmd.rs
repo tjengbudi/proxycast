@@ -45,6 +45,8 @@ pub struct UpdateProviderRequest {
     pub project: Option<String>,
     pub location: Option<String>,
     pub region: Option<String>,
+    /// 自定义模型列表
+    pub custom_models: Option<Vec<String>>,
 }
 
 /// 添加 API Key 请求
@@ -71,6 +73,8 @@ pub struct ProviderDisplay {
     pub project: Option<String>,
     pub location: Option<String>,
     pub region: Option<String>,
+    /// 自定义模型列表
+    pub custom_models: Vec<String>,
     pub api_key_count: usize,
     pub created_at: String,
     pub updated_at: String,
@@ -130,6 +134,7 @@ fn provider_to_display(provider: &ApiKeyProvider, api_key_count: usize) -> Provi
         project: provider.project.clone(),
         location: provider.location.clone(),
         region: provider.region.clone(),
+        custom_models: provider.custom_models.clone(),
         api_key_count,
         created_at: provider.created_at.to_rfc3339(),
         updated_at: provider.updated_at.to_rfc3339(),
@@ -247,6 +252,7 @@ pub fn update_api_key_provider(
         request.project,
         request.location,
         request.region,
+        request.custom_models,
     )?;
 
     // 获取 API Key 数量

@@ -28,11 +28,14 @@ pub async fn start_server(
     )
     .await
     .map_err(|e| e.to_string())?;
+    
+    // 使用 status() 获取实际使用的地址（可能已经自动切换到有效的 IP）
+    let status = s.status();
     logs.write().await.add(
         "info",
         &format!(
             "Server started on {}:{}",
-            s.config.server.host, s.config.server.port
+            status.host, status.port
         ),
     );
     Ok("Server started".to_string())

@@ -16,7 +16,7 @@ impl ProviderPoolDao {
     pub fn get_all(conn: &Connection) -> Result<Vec<ProviderCredential>, rusqlite::Error> {
         let mut stmt = conn.prepare(
             "SELECT uuid, provider_type, credential_data, name, is_healthy, is_disabled,
-                    check_health, check_model_name, not_supported_models, usage_count, error_count,
+                    check_health, check_model_name, not_supported_models, supported_models, usage_count, error_count,
                     last_used, last_error_time, last_error_message, last_health_check_time,
                     last_health_check_model, created_at, updated_at, source, proxy_url
              FROM provider_pool_credentials
@@ -39,7 +39,7 @@ impl ProviderPoolDao {
     ) -> Result<Vec<ProviderCredential>, rusqlite::Error> {
         let mut stmt = conn.prepare(
             "SELECT uuid, provider_type, credential_data, name, is_healthy, is_disabled,
-                    check_health, check_model_name, not_supported_models, usage_count, error_count,
+                    check_health, check_model_name, not_supported_models, supported_models, usage_count, error_count,
                     last_used, last_error_time, last_error_message, last_health_check_time,
                     last_health_check_model, created_at, updated_at, source, proxy_url
              FROM provider_pool_credentials
@@ -65,7 +65,7 @@ impl ProviderPoolDao {
     ) -> Result<Option<ProviderCredential>, rusqlite::Error> {
         let mut stmt = conn.prepare(
             "SELECT uuid, provider_type, credential_data, name, is_healthy, is_disabled,
-                    check_health, check_model_name, not_supported_models, usage_count, error_count,
+                    check_health, check_model_name, not_supported_models, supported_models, usage_count, error_count,
                     last_used, last_error_time, last_error_message, last_health_check_time,
                     last_health_check_model, created_at, updated_at, source, proxy_url
              FROM provider_pool_credentials
@@ -87,7 +87,7 @@ impl ProviderPoolDao {
     ) -> Result<Option<ProviderCredential>, rusqlite::Error> {
         let mut stmt = conn.prepare(
             "SELECT uuid, provider_type, credential_data, name, is_healthy, is_disabled,
-                    check_health, check_model_name, not_supported_models, usage_count, error_count,
+                    check_health, check_model_name, not_supported_models, supported_models, usage_count, error_count,
                     last_used, last_error_time, last_error_message, last_health_check_time,
                     last_health_check_model, created_at, updated_at, source, proxy_url
              FROM provider_pool_credentials
@@ -120,6 +120,8 @@ impl ProviderPoolDao {
             serde_json::to_string(&cred.credential).unwrap_or_else(|_| "{}".to_string());
         let not_supported_models_json =
             serde_json::to_string(&cred.not_supported_models).unwrap_or_else(|_| "[]".to_string());
+        let supported_models_json =
+            serde_json::to_string(&cred.supported_models).unwrap_or_else(|_| "[]".to_string());
         let source_str = match cred.source {
             CredentialSource::Manual => "manual",
             CredentialSource::Imported => "imported",
@@ -129,10 +131,10 @@ impl ProviderPoolDao {
         conn.execute(
             "INSERT INTO provider_pool_credentials
              (uuid, provider_type, credential_data, name, is_healthy, is_disabled,
-              check_health, check_model_name, not_supported_models, usage_count, error_count,
+              check_health, check_model_name, not_supported_models, supported_models, usage_count, error_count,
               last_used, last_error_time, last_error_message, last_health_check_time,
               last_health_check_model, created_at, updated_at, source, proxy_url)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
             params![
                 cred.uuid,
                 cred.provider_type.to_string(),
@@ -143,6 +145,7 @@ impl ProviderPoolDao {
                 cred.check_health,
                 cred.check_model_name,
                 not_supported_models_json,
+                supported_models_json,
                 cred.usage_count,
                 cred.error_count,
                 cred.last_used.map(|t| t.timestamp()),
@@ -165,14 +168,16 @@ impl ProviderPoolDao {
             serde_json::to_string(&cred.credential).unwrap_or_else(|_| "{}".to_string());
         let not_supported_models_json =
             serde_json::to_string(&cred.not_supported_models).unwrap_or_else(|_| "[]".to_string());
+        let supported_models_json =
+            serde_json::to_string(&cred.supported_models).unwrap_or_else(|_| "[]".to_string());
 
         conn.execute(
             "UPDATE provider_pool_credentials SET
              provider_type = ?2, credential_data = ?3, name = ?4, is_healthy = ?5,
              is_disabled = ?6, check_health = ?7, check_model_name = ?8,
-             not_supported_models = ?9, usage_count = ?10, error_count = ?11,
-             last_used = ?12, last_error_time = ?13, last_error_message = ?14,
-             last_health_check_time = ?15, last_health_check_model = ?16, updated_at = ?17, proxy_url = ?18
+             not_supported_models = ?9, supported_models = ?10, usage_count = ?11, error_count = ?12,
+             last_used = ?13, last_error_time = ?14, last_error_message = ?15,
+             last_health_check_time = ?16, last_health_check_model = ?17, updated_at = ?18, proxy_url = ?19
              WHERE uuid = ?1",
             params![
                 cred.uuid,
@@ -184,6 +189,7 @@ impl ProviderPoolDao {
                 cred.check_health,
                 cred.check_model_name,
                 not_supported_models_json,
+                supported_models_json,
                 cred.usage_count,
                 cred.error_count,
                 cred.last_used.map(|t| t.timestamp()),
@@ -297,17 +303,18 @@ impl ProviderPoolDao {
         let check_health: bool = row.get(6)?;
         let check_model_name: Option<String> = row.get(7)?;
         let not_supported_models_json: Option<String> = row.get(8)?;
-        let usage_count: u64 = row.get::<_, i64>(9)? as u64;
-        let error_count: u32 = row.get::<_, i32>(10)? as u32;
-        let last_used_ts: Option<i64> = row.get(11)?;
-        let last_error_time_ts: Option<i64> = row.get(12)?;
-        let last_error_message: Option<String> = row.get(13)?;
-        let last_health_check_time_ts: Option<i64> = row.get(14)?;
-        let last_health_check_model: Option<String> = row.get(15)?;
-        let created_at_ts: i64 = row.get(16)?;
-        let updated_at_ts: i64 = row.get(17)?;
-        let source_str: Option<String> = row.get(18).ok();
-        let proxy_url: Option<String> = row.get(19).ok();
+        let supported_models_json: Option<String> = row.get(9)?;
+        let usage_count: u64 = row.get::<_, i64>(10)? as u64;
+        let error_count: u32 = row.get::<_, i32>(11)? as u32;
+        let last_used_ts: Option<i64> = row.get(12)?;
+        let last_error_time_ts: Option<i64> = row.get(13)?;
+        let last_error_message: Option<String> = row.get(14)?;
+        let last_health_check_time_ts: Option<i64> = row.get(15)?;
+        let last_health_check_model: Option<String> = row.get(16)?;
+        let created_at_ts: i64 = row.get(17)?;
+        let updated_at_ts: i64 = row.get(18)?;
+        let source_str: Option<String> = row.get(19).ok();
+        let proxy_url: Option<String> = row.get(20).ok();
 
         let provider_type: PoolProviderType =
             provider_type_str.parse().unwrap_or(PoolProviderType::Kiro);
@@ -317,6 +324,10 @@ impl ProviderPoolDao {
         })?;
 
         let not_supported_models: Vec<String> = not_supported_models_json
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+
+        let supported_models: Vec<String> = supported_models_json
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
 
@@ -336,6 +347,7 @@ impl ProviderPoolDao {
             check_health,
             check_model_name,
             not_supported_models,
+            supported_models,
             usage_count,
             error_count,
             last_used: last_used_ts.and_then(|ts| Utc.timestamp_opt(ts, 0).single()),

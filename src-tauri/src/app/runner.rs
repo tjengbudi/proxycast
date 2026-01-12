@@ -522,8 +522,10 @@ pub fn run() {
                         .await
                     {
                         Ok(_) => {
-                            let host = s.config.server.host.clone();
-                            let port = s.config.server.port;
+                            // 使用 status() 获取实际使用的地址（可能已经自动切换到有效的 IP）
+                            let status = s.status();
+                            let host = status.host;
+                            let port = status.port;
                             logs.write()
                                 .await
                                 .add("info", &format!("[启动] 服务器已启动: {host}:{port}"));
@@ -1158,6 +1160,13 @@ pub fn run() {
             commands::model_registry_cmd::get_models_by_tier,
             commands::model_registry_cmd::get_provider_alias_config,
             commands::model_registry_cmd::get_all_alias_configs,
+            // Model Management commands (动态模型列表)
+            commands::model_cmd::get_credential_models,
+            commands::model_cmd::refresh_credential_models,
+            commands::model_cmd::get_all_models_by_provider,
+            commands::model_cmd::get_all_available_models,
+            commands::model_cmd::refresh_all_credential_models,
+            commands::model_cmd::get_default_models_for_provider,
             // Terminal commands
             commands::terminal_cmd::terminal_create_session,
             commands::terminal_cmd::terminal_write,

@@ -213,6 +213,9 @@ pub struct ProviderCredential {
     /// 不支持的模型列表（黑名单）
     #[serde(default)]
     pub not_supported_models: Vec<String>,
+    /// 支持的模型列表（从 /v1/models 接口获取）
+    #[serde(default)]
+    pub supported_models: Vec<String>,
     /// 使用次数
     #[serde(default)]
     pub usage_count: u64,
@@ -261,6 +264,7 @@ impl ProviderCredential {
             check_health: true,
             check_model_name: None,
             not_supported_models: Vec::new(),
+            supported_models: Vec::new(),
             usage_count: 0,
             error_count: 0,
             last_used: None,
@@ -534,6 +538,7 @@ pub struct CredentialDisplay {
     pub check_health: bool,
     pub check_model_name: Option<String>,
     pub not_supported_models: Vec<String>,
+    pub supported_models: Vec<String>,
     pub usage_count: u64,
     pub error_count: u32,
     pub last_used: Option<String>,
@@ -639,6 +644,7 @@ impl From<&ProviderCredential> for CredentialDisplay {
             check_health: cred.check_health,
             check_model_name: cred.check_model_name.clone(),
             not_supported_models: cred.not_supported_models.clone(),
+            supported_models: cred.supported_models.clone(),
             usage_count: cred.usage_count,
             error_count: cred.error_count,
             last_used: cred.last_used.map(|t| t.to_rfc3339()),
@@ -769,6 +775,7 @@ mod tests {
             check_health: true,
             check_model_name: None,
             not_supported_models: vec!["claude-opus".to_string()],
+            supported_models: vec![],
             usage_count: 0,
             error_count: 0,
             last_used: None,
@@ -803,6 +810,7 @@ mod tests {
             check_health: true,
             check_model_name: None,
             not_supported_models: vec![],
+            supported_models: vec![],
             usage_count: 0,
             error_count: 0,
             last_used: None,
@@ -839,6 +847,7 @@ mod tests {
             check_health: true,
             check_model_name: None,
             not_supported_models: vec![],
+            supported_models: vec![],
             usage_count: 0,
             error_count: 0,
             last_used: None,
@@ -879,6 +888,7 @@ mod tests {
             check_health: true,
             check_model_name: None,
             not_supported_models: vec![],
+            supported_models: vec![],
             usage_count: 0,
             error_count: 0,
             last_used: None,
@@ -916,6 +926,7 @@ mod tests {
             check_health: true,
             check_model_name: None,
             not_supported_models: vec!["gemini-3-pro".to_string()],
+            supported_models: vec![],
             usage_count: 0,
             error_count: 0,
             last_used: None,
@@ -954,6 +965,7 @@ mod tests {
             check_health: true,
             check_model_name: None,
             not_supported_models: vec![],
+            supported_models: vec![],
             usage_count: 0,
             error_count: 0,
             last_used: None,

@@ -187,8 +187,10 @@ async fn start_server_async(
             .await
         {
             Ok(_) => {
-                let host = s.config.server.host.clone();
-                let port = s.config.server.port;
+                // 获取服务器实际使用的地址（可能已经自动切换到有效的 IP）
+                let status = s.status();
+                let host = status.host;
+                let port = status.port;
                 logs.write()
                     .await
                     .add("info", &format!("[启动] 服务器已启动: {host}:{port}"));

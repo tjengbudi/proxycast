@@ -14,7 +14,80 @@ use std::sync::Arc;
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
+// ============================================================================
+// Antigravity API 错误类型
+// ============================================================================
+
+/// Antigravity API 错误
+///
+/// 携带 HTTP 状态码，便于调用方透传给客户端
+#[derive(Debug, Clone)]
+pub struct AntigravityApiError {
+    /// HTTP 状态码
+    pub status_code: u16,
+    /// 错误消息
+    pub message: String,
+    /// 原始响应体（如果有）
+    pub body: Option<String>,
+}
+
+impl AntigravityApiError {
+    /// 创建新的 API 错误
+    pub fn new(status_code: u16, message: impl Into<String>) -> Self {
+        Self {
+            status_code,
+            message: message.into(),
+            body: None,
+        }
+    }
+
+    /// 创建带响应体的 API 错误
+    pub fn with_body(status_code: u16, message: impl Into<String>, body: impl Into<String>) -> Self {
+        Self {
+            status_code,
+            message: message.into(),
+            body: Some(body.into()),
+        }
+    }
+
+    /// 是否是可重试的错误（429 或 5xx）
+    pub fn is_retryable(&self) -> bool {
+        self.status_code == 429 || (self.status_code >= 500 && self.status_code < 600)
+    }
+
+    /// 是否是权限错误（401 或 403）
+    pub fn is_auth_error(&self) -> bool {
+        self.status_code == 401 || self.status_code == 403
+    }
+
+    /// 是否是配额耗尽错误（429）
+    pub fn is_rate_limit(&self) -> bool {
+        self.status_code == 429
+    }
+
+    /// 获取用户友好的错误消息
+    pub fn user_message(&self) -> String {
+        match self.status_code {
+            401 => format!("认证失败，请重新登录: {}", self.message),
+            403 => format!("权限不足: {}", self.message),
+            429 => format!("请求过于频繁，请稍后重试: {}", self.message),
+            500..=599 => format!("服务器错误 ({}): {}", self.status_code, self.message),
+            _ => format!("API 错误 ({}): {}", self.status_code, self.message),
+        }
+    }
+}
+
+impl std::fmt::Display for AntigravityApiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "HTTP {} - {}", self.status_code, self.message)
+    }
+}
+
+impl std::error::Error for AntigravityApiError {}
+
 // Constants
+// 正确的 Cloud Code API 端点（参考 Antigravity-Manager）
+const ANTIGRAVITY_BASE_URL_PROD: &str = "https://cloudcode-pa.googleapis.com";
 const ANTIGRAVITY_BASE_URL_DAILY: &str = "https://daily-cloudcode-pa.sandbox.googleapis.com";
 const ANTIGRAVITY_BASE_URL_AUTOPUSH: &str = "https://autopush-cloudcode-pa.sandbox.googleapis.com";
 const ANTIGRAVITY_API_VERSION: &str = "v1internal";
@@ -287,9 +360,11 @@ impl Default for AntigravityProvider {
                 .timeout(std::time::Duration::from_secs(120))
                 .build()
                 .unwrap_or_else(|_| Client::new()),
+            // 只使用生产环境和 daily 环境（参考 Antigravity-Manager）
+            // 沙盒环境（autopush）需要特殊许可证，不适合普通用户
             base_urls: vec![
+                ANTIGRAVITY_BASE_URL_PROD.to_string(),
                 ANTIGRAVITY_BASE_URL_DAILY.to_string(),
-                ANTIGRAVITY_BASE_URL_AUTOPUSH.to_string(),
             ],
             available_models: ANTIGRAVITY_MODELS_FALLBACK
                 .iter()
@@ -744,20 +819,29 @@ impl AntigravityProvider {
         Ok(new_token.to_string())
     }
 
-    /// 调用 Antigravity API
+    /// 调用 Antigravity API（内部方法）
+    ///
+    /// 返回 `AntigravityApiError` 以便调用方获取 HTTP 状态码
     async fn call_api_internal(
         &self,
         base_url: &str,
         method: &str,
         body: &serde_json::Value,
-    ) -> Result<serde_json::Value, Box<dyn Error + Send + Sync>> {
+    ) -> Result<serde_json::Value, AntigravityApiError> {
         let token = self
             .credentials
             .access_token
             .as_ref()
-            .ok_or("No access token")?;
+            .ok_or_else(|| AntigravityApiError::new(401, "No access token"))?;
 
         let url = format!("{}/{ANTIGRAVITY_API_VERSION}:{method}", base_url);
+
+        // 打印详细的请求信息
+        eprintln!("========== [ANTIGRAVITY_API] 请求详情 ==========");
+        eprintln!("[ANTIGRAVITY_API] URL: {}", url);
+        eprintln!("[ANTIGRAVITY_API] Method: {}", method);
+        eprintln!("[ANTIGRAVITY_API] Token (前20字符): {}...", &token[..token.len().min(20)]);
+        eprintln!("[ANTIGRAVITY_API] 请求体: {}", serde_json::to_string_pretty(body).unwrap_or_default());
 
         let resp = self
             .client
@@ -767,37 +851,78 @@ impl AntigravityProvider {
             .header("User-Agent", "antigravity/1.11.5 windows/amd64")
             .json(body)
             .send()
-            .await?;
+            .await
+            .map_err(|e| {
+                eprintln!("[ANTIGRAVITY_API] 网络错误: {}", e);
+                AntigravityApiError::new(503, format!("Network error: {}", e))
+            })?;
 
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
-            return Err(format!("API call failed: {status} - {body}").into());
+        let status = resp.status();
+        let status_code = status.as_u16();
+        eprintln!("[ANTIGRAVITY_API] 响应状态码: {}", status);
+
+        if !status.is_success() {
+            let body_text = resp.text().await.unwrap_or_default();
+            eprintln!("[ANTIGRAVITY_API] 错误响应体: {}", body_text);
+            eprintln!("========== [ANTIGRAVITY_API] 请求失败 ==========");
+            return Err(AntigravityApiError::with_body(
+                status_code,
+                format!("API call failed: {}", status),
+                body_text,
+            ));
         }
 
-        let data: serde_json::Value = resp.json().await?;
+        let response_text = resp.text().await.map_err(|e| {
+            AntigravityApiError::new(500, format!("Failed to read response: {}", e))
+        })?;
+        eprintln!("[ANTIGRAVITY_API] 响应体: {}", response_text);
+        
+        let data: serde_json::Value = serde_json::from_str(&response_text)
+            .map_err(|e| AntigravityApiError::new(500, format!("Failed to parse response: {}", e)))?;
+        
+        eprintln!("========== [ANTIGRAVITY_API] 请求成功 ==========");
         Ok(data)
     }
 
     /// 调用 API，支持多环境降级
+    ///
+    /// 返回 `AntigravityApiError` 以便调用方获取 HTTP 状态码并透传给客户端。
+    /// 只在特定错误（429 配额耗尽、5xx 服务器错误）时才降级到备用端点，
+    /// 403 权限错误等不应该降级，因为换端点也没用。
     pub async fn call_api(
         &self,
         method: &str,
         body: &serde_json::Value,
-    ) -> Result<serde_json::Value, Box<dyn Error + Send + Sync>> {
-        let mut last_error: Option<Box<dyn Error + Send + Sync>> = None;
+    ) -> Result<serde_json::Value, AntigravityApiError> {
+        let mut last_error: Option<AntigravityApiError> = None;
 
-        for base_url in &self.base_urls {
+        for (idx, base_url) in self.base_urls.iter().enumerate() {
             match self.call_api_internal(base_url, method, body).await {
                 Ok(data) => return Ok(data),
                 Err(e) => {
-                    tracing::warn!("[Antigravity] Failed on {}: {}", base_url, e);
-                    last_error = Some(e);
+                    // 使用 AntigravityApiError 的方法判断是否可重试
+                    let should_fallback = e.is_retryable();
+                    
+                    if should_fallback && idx + 1 < self.base_urls.len() {
+                        tracing::warn!(
+                            "[Antigravity] {} 返回可重试错误 (HTTP {}), 尝试下一个端点",
+                            base_url, e.status_code
+                        );
+                        last_error = Some(e);
+                        continue;
+                    }
+                    
+                    // 403、401 等权限错误直接返回，不降级
+                    tracing::warn!(
+                        "[Antigravity] {} 失败 (HTTP {}): {}",
+                        base_url, e.status_code, e.message
+                    );
+                    return Err(e);
                 }
             }
         }
 
-        Err(last_error.unwrap_or_else(|| "All Antigravity base URLs failed".into()))
+        Err(last_error.unwrap_or_else(|| AntigravityApiError::new(503, "All Antigravity base URLs failed")))
     }
 
     /// 发现项目 ID
@@ -898,20 +1023,34 @@ impl AntigravityProvider {
     }
 
     /// 生成内容（非流式）
+    ///
+    /// 返回 `AntigravityApiError` 以便调用方获取 HTTP 状态码并透传给客户端。
     pub async fn generate_content(
         &self,
         model: &str,
         request_body: &serde_json::Value,
-    ) -> Result<serde_json::Value, Box<dyn Error + Send + Sync>> {
+    ) -> Result<serde_json::Value, AntigravityApiError> {
+        eprintln!("========== [ANTIGRAVITY_GENERATE] 开始生成内容 ==========");
+        eprintln!("[ANTIGRAVITY_GENERATE] 模型: {}", model);
+        eprintln!("[ANTIGRAVITY_GENERATE] 请求体: {}", serde_json::to_string_pretty(request_body).unwrap_or_default());
+        
         let project_id = self.project_id.clone().unwrap_or_else(generate_project_id);
+        eprintln!("[ANTIGRAVITY_GENERATE] 项目ID: {}", project_id);
+        
         let actual_model = alias_to_model_name(model);
+        eprintln!("[ANTIGRAVITY_GENERATE] 实际模型名: {}", actual_model);
 
         let payload = self.build_antigravity_request(&actual_model, &project_id, request_body);
+        eprintln!("[ANTIGRAVITY_GENERATE] 构建的 payload: {}", serde_json::to_string_pretty(&payload).unwrap_or_default());
 
+        eprintln!("[ANTIGRAVITY_GENERATE] 调用 call_api...");
         let resp = self.call_api("generateContent", &payload).await?;
+        eprintln!("[ANTIGRAVITY_GENERATE] call_api 返回成功");
 
         // 转换为 Gemini 格式响应
-        Ok(self.to_gemini_response(&resp))
+        let result = self.to_gemini_response(&resp);
+        eprintln!("========== [ANTIGRAVITY_GENERATE] 生成内容完成 ==========");
+        Ok(result)
     }
 
     /// 构建 Antigravity 请求
