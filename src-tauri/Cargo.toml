@@ -154,12 +154,12 @@ version = "2.4"
 
 [package]
 name = "proxycast"
-version.workspace = true
+version = "0.47.4"
 description = "AI API Proxy Desktop App"
-authors.workspace = true
-edition.workspace = true
-repository.workspace = true
-homepage.workspace = true
+authors = ["you"]
+edition = "2021"
+repository = "https://github.com/aiclientproxy/proxycast"
+homepage = "https://github.com/aiclientproxy/proxycast"
 
 [lib]
 name = "proxycast_lib"
