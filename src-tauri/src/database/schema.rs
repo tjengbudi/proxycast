@@ -450,11 +450,15 @@ pub fn create_tables(conn: &Connection) -> Result<(), rusqlite::Error> {
             id TEXT PRIMARY KEY,
             model TEXT NOT NULL,
             system_prompt TEXT,
+            title TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         )",
         [],
     )?;
+
+    // Migration: 添加 title 列（如果不存在）
+    let _ = conn.execute("ALTER TABLE agent_sessions ADD COLUMN title TEXT", []);
 
     // Agent 消息表
     // 存储每个会话的消息历史
@@ -557,6 +561,171 @@ pub fn create_tables(conn: &Connection) -> Result<(), rusqlite::Error> {
     )?;
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_workspaces_is_default ON workspaces(is_default)",
+        [],
+    )?;
+
+    // Migration: 添加项目管理相关字段到 workspaces 表
+    let _ = conn.execute("ALTER TABLE workspaces ADD COLUMN icon TEXT", []);
+    let _ = conn.execute("ALTER TABLE workspaces ADD COLUMN color TEXT", []);
+    let _ = conn.execute(
+        "ALTER TABLE workspaces ADD COLUMN is_favorite INTEGER DEFAULT 0",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE workspaces ADD COLUMN is_archived INTEGER DEFAULT 0",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE workspaces ADD COLUMN tags_json TEXT DEFAULT '[]'",
+        [],
+    );
+
+    // Migration: 迁移旧的项目类型到新类型
+    // drama -> video, social -> social-media
+    let _ = conn.execute(
+        "UPDATE workspaces SET workspace_type = 'video' WHERE workspace_type = 'drama'",
+        [],
+    );
+    let _ = conn.execute(
+        "UPDATE workspaces SET workspace_type = 'social-media' WHERE workspace_type = 'social'",
+        [],
+    );
+
+    // ============================================================================
+    // 项目内容管理相关表
+    // ============================================================================
+
+    // 内容表
+    // 存储项目下的内容（剧集、章节、帖子、文档等）
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS contents (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            content_type TEXT NOT NULL DEFAULT 'document',
+            status TEXT NOT NULL DEFAULT 'draft',
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            body TEXT NOT NULL DEFAULT '',
+            word_count INTEGER NOT NULL DEFAULT 0,
+            metadata_json TEXT,
+            session_id TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            FOREIGN KEY (project_id) REFERENCES workspaces(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
+    // 创建 contents 索引
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_contents_project_id ON contents(project_id)",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_contents_status ON contents(status)",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_contents_sort_order ON contents(sort_order)",
+        [],
+    )?;
+
+    // ============================================================================
+    // 项目记忆系统相关表
+    // ============================================================================
+
+    // 角色表
+    // 存储项目的角色设定
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS characters (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            aliases_json TEXT NOT NULL DEFAULT '[]',
+            description TEXT,
+            personality TEXT,
+            background TEXT,
+            appearance TEXT,
+            relationships_json TEXT NOT NULL DEFAULT '[]',
+            avatar_url TEXT,
+            is_main INTEGER DEFAULT 0,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            extra_json TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            FOREIGN KEY (project_id) REFERENCES workspaces(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
+    // 创建 characters 索引
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_characters_project_id ON characters(project_id)",
+        [],
+    )?;
+
+    // 世界观表
+    // 存储项目的世界观设定
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS world_building (
+            project_id TEXT PRIMARY KEY,
+            description TEXT NOT NULL DEFAULT '',
+            era TEXT,
+            locations TEXT,
+            rules TEXT,
+            extra_json TEXT,
+            updated_at INTEGER NOT NULL,
+            FOREIGN KEY (project_id) REFERENCES workspaces(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
+    // 风格指南表
+    // 存储项目的写作风格指南
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS style_guides (
+            project_id TEXT PRIMARY KEY,
+            style TEXT NOT NULL DEFAULT '',
+            tone TEXT,
+            forbidden_words_json TEXT NOT NULL DEFAULT '[]',
+            preferred_words_json TEXT NOT NULL DEFAULT '[]',
+            examples TEXT,
+            extra_json TEXT,
+            updated_at INTEGER NOT NULL,
+            FOREIGN KEY (project_id) REFERENCES workspaces(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
+    // 大纲节点表
+    // 存储项目的大纲结构
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS outline_nodes (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            parent_id TEXT,
+            title TEXT NOT NULL,
+            content TEXT,
+            content_id TEXT,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            expanded INTEGER DEFAULT 1,
+            extra_json TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            FOREIGN KEY (project_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+            FOREIGN KEY (parent_id) REFERENCES outline_nodes(id) ON DELETE CASCADE,
+            FOREIGN KEY (content_id) REFERENCES contents(id) ON DELETE SET NULL
+        )",
+        [],
+    )?;
+
+    // 创建 outline_nodes 索引
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_outline_nodes_project_id ON outline_nodes(project_id)",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_outline_nodes_parent_id ON outline_nodes(parent_id)",
         [],
     )?;
 

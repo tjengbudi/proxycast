@@ -57,3 +57,5 @@ src-tauri/gen
 Taskfile.yml
 nul
 .proptest-regressions
+.codex
+openspec

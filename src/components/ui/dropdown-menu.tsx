@@ -58,15 +58,31 @@ const DropdownMenuTrigger: React.FC<DropdownMenuTriggerProps> = ({
   if (!context)
     throw new Error("DropdownMenuTrigger must be used within DropdownMenu");
 
-  const { setOpen } = context;
+  const { open, setOpen } = context;
 
   if (asChild && React.isValidElement(children)) {
-    return React.cloneElement(children, {
-      onClick: () => setOpen(true),
+    const childProps = children.props as {
+      onClick?: (e: React.MouseEvent) => void;
+    };
+    return React.cloneElement(children as React.ReactElement, {
+      onClick: (e: React.MouseEvent) => {
+        e.stopPropagation();
+        childProps.onClick?.(e);
+        setOpen(!open);
+      },
     });
   }
 
-  return <button onClick={() => setOpen(true)}>{children}</button>;
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        setOpen(!open);
+      }}
+    >
+      {children}
+    </button>
+  );
 };
 
 interface DropdownMenuContentProps {
@@ -113,10 +129,11 @@ const DropdownMenuContent: React.FC<DropdownMenuContentProps> = ({
     <div
       ref={ref}
       className={cn(
-        "absolute top-full z-50 mt-1 min-w-32 rounded-md border bg-white shadow-md",
+        "absolute top-full z-50 mt-1 min-w-32 rounded-md border bg-popover text-popover-foreground shadow-md",
         alignmentClasses[align],
         className,
       )}
+      onClick={(e) => e.stopPropagation()}
     >
       {children}
     </div>
@@ -140,7 +157,8 @@ const DropdownMenuItem: React.FC<DropdownMenuItemProps> = ({
 
   const { setOpen } = context;
 
-  const handleClick = () => {
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
     onClick?.();
     setOpen(false);
   };
@@ -148,7 +166,7 @@ const DropdownMenuItem: React.FC<DropdownMenuItemProps> = ({
   return (
     <div
       className={cn(
-        "relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-gray-100",
+        "relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground",
         className,
       )}
       onClick={handleClick}

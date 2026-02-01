@@ -346,17 +346,23 @@ interface EmptyStateProps {
   activeTheme?: string;
   /** 主题变更回调 */
   onThemeChange?: (theme: string) => void;
+  /** 推荐标签点击回调 */
+  onRecommendationClick?: (shortLabel: string, fullPrompt: string) => void;
 }
 
-// Scenarios Configuration
+// Scenarios Configuration - 与 ProjectType 统一
 const CATEGORIES = [
   {
     id: "general",
     label: "通用对话",
     icon: <Globe className="w-4 h-4" />,
   },
-  { id: "social", label: "社媒内容", icon: <PenTool className="w-4 h-4" /> },
-  { id: "image", label: "图文海报", icon: <ImageIcon className="w-4 h-4" /> },
+  {
+    id: "social-media",
+    label: "社媒内容",
+    icon: <PenTool className="w-4 h-4" />,
+  },
+  { id: "poster", label: "图文海报", icon: <ImageIcon className="w-4 h-4" /> },
   { id: "music", label: "歌词曲谱", icon: <Music className="w-4 h-4" /> },
   {
     id: "knowledge",
@@ -368,12 +374,158 @@ const CATEGORIES = [
     label: "计划规划",
     icon: <CalendarRange className="w-4 h-4" />,
   },
-  { id: "office", label: "办公文档", icon: <FileText className="w-4 h-4" /> },
+  { id: "document", label: "办公文档", icon: <FileText className="w-4 h-4" /> },
   { id: "video", label: "短视频", icon: <Video className="w-4 h-4" /> },
+  { id: "novel", label: "小说创作", icon: <PenTool className="w-4 h-4" /> },
 ];
 
 // 需要显示创作模式选择器的主题
-const CREATION_THEMES = ["social", "image", "office", "video", "music"];
+const CREATION_THEMES = [
+  "social-media",
+  "poster",
+  "document",
+  "video",
+  "music",
+  "novel",
+];
+
+/**
+ * 推荐内容配置
+ * 格式: [简化标题, 完整 Prompt]
+ * 简化标题用于显示，完整 Prompt 用于点击发送
+ */
+const RECOMMENDATIONS: Record<string, [string, string][]> = {
+  "social-media": [
+    [
+      "爆款标题生成",
+      "帮我为'春季护肤routine'写10个小红书爆款标题，要求：数字开头、制造悬念、引发共鸣",
+    ],
+    [
+      "小红书探店文案",
+      "写一篇小红书探店文案：周末在杭州发现一家宝藏咖啡店，工业风装修+拉花拿铁，适合拍照出片",
+    ],
+    [
+      "公众号排版",
+      "帮我把这段话排版成公众号风格：每段不超过150字，加入小标题和emoji，重点内容加粗",
+    ],
+    [
+      "评论区回复",
+      "用户评论'这个产品真的好用吗？还是广告？'，帮我写一条真诚、有说服力的回复",
+    ],
+  ],
+  poster: [
+    [
+      "海报设计",
+      "设计一张夏日音乐节海报：主色调渐变蓝紫，中央是剪影吉他和声波元素，底部大标题'夏日音浪'",
+    ],
+    [
+      "插画生成",
+      "生成一幅温馨的卧室插画：暖色调，落地窗透进阳光，书桌上有绿植和笔记本，治愈系风格",
+    ],
+    [
+      "UI 界面",
+      "设计一个健身APP首页：深色模式，顶部显示今日步数，中间是环形进度条，底部四个功能入口",
+    ],
+    [
+      "Logo 设计",
+      "设计一家名为'绿野'的有机食品品牌Logo：简约绿色叶子轮廓，可单独使用，适合多种尺寸",
+    ],
+    [
+      "摄影修图",
+      "人像照片调色建议：肤色通透，背景偏暖，整体日系清新风格，降低对比度提升亮度",
+    ],
+  ],
+  knowledge: [
+    [
+      "解释量子计算",
+      "用通俗易懂的方式解释量子计算是什么，类比成生活中的例子，适合非理科背景的人理解",
+    ],
+    [
+      "总结这篇论文",
+      "[粘贴论文链接或内容后] 帮我总结这篇论文的核心观点、研究方法和主要结论，输出500字以内的摘要",
+    ],
+    [
+      "如何制定OKR",
+      "详细介绍OKR（目标与关键结果）制定方法，包括设定原则、常见误区和实际案例，适合团队管理者",
+    ],
+    [
+      "分析行业趋势",
+      "分析2024年AI行业发展趋势，从技术突破、商业化进程、监管政策三个维度展开",
+    ],
+  ],
+  planning: [
+    [
+      "日本旅行计划",
+      "帮我制定一个7天日本关西旅行计划：大阪进京都出，包含主要景点、美食推荐、交通路线和预算估算",
+    ],
+    [
+      "年度职业规划",
+      "制定一名前端开发工程师的2024年职业规划：技能提升、项目经验、人脉积累、求职目标四个维度",
+    ],
+    [
+      "婚礼流程表",
+      "制定一场户外草坪婚礼的流程表：上午10点开始，包含仪式、宴会、互动环节，标注每个环节的时间",
+    ],
+    [
+      "健身计划",
+      "为办公室上班族制定健身计划：每周3次，每次30分钟，无需器械，可在办公室或家中完成",
+    ],
+  ],
+  music: [
+    [
+      "流行情歌",
+      "创作一首关于'暗恋'的流行情歌：主歌描述图书馆偶遇，副歌表达不敢告白的纠结，温柔的R&B风格",
+    ],
+    [
+      "古风歌词",
+      "创作古风歌词：主题是'江湖离别'，意象包括酒、剑、残阳、孤舟，五言句式为主，押韵工整",
+    ],
+    [
+      "说唱歌词",
+      "创作一段励志说唱：主题是'逆风翻盘'，讲述从低谷到成功的经历，快节奏，押韵密集，副歌要炸",
+    ],
+    [
+      "儿歌创作",
+      "创作一首儿童安全教育儿歌：主题是'过马路要小心'，简单易记，欢快活泼，3-5岁儿童能跟着唱",
+    ],
+    [
+      "旋律学习",
+      "帮我分析《稻香》的旋律特点：调式、和弦进行、节奏型，以及为什么听起来很怀旧温暖",
+    ],
+  ],
+  novel: [
+    [
+      "玄幻小说",
+      "创作玄幻小说开篇：主角在深山古洞觉醒传承，获得上古剑诀，第一章包含世界观铺垫和悬念设置",
+    ],
+    [
+      "都市言情",
+      "创作都市言情小说开篇：职场新人与高冷上司因工作误会相识，第一章突出女主性格和两人的初次冲突",
+    ],
+    [
+      "悬疑推理",
+      "创作悬疑推理小说开篇：雨夜发生密室杀人案，侦探到达现场发现三条线索，第一章制造悬念和推理伏笔",
+    ],
+    [
+      "科幻未来",
+      "创作科幻小说开篇：2084年人类首次接触外星文明，主角作为语言学家被召唤，第一章描写接触场景和紧张氛围",
+    ],
+    [
+      "历史架空",
+      "创作历史架空小说开篇：三国时期，一个现代人穿越成普通士兵，如何利用现代知识在乱世中生存",
+    ],
+  ],
+};
+
+// 主题对应的图标
+const THEME_ICONS: Record<string, string> = {
+  "social-media": "✨",
+  poster: "🎨",
+  knowledge: "🔍",
+  planning: "📅",
+  music: "🎵",
+  novel: "📖",
+};
 
 export const EmptyState: React.FC<EmptyStateProps> = ({
   input,
@@ -383,6 +535,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   onCreationModeChange,
   activeTheme = "general",
   onThemeChange,
+  onRecommendationClick,
 }) => {
   // 使用外部传入的 activeTheme，如果有 onThemeChange 则使用受控模式
   const handleThemeChange = (theme: string) => {
@@ -403,11 +556,12 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   const handleSend = () => {
     if (!input.trim()) return;
     let prefix = "";
-    if (activeTheme === "social") prefix = `[社媒创作: ${platform}] `;
-    if (activeTheme === "image") prefix = `[图文生成: ${ratio}, ${style}] `;
+    if (activeTheme === "social-media") prefix = `[社媒创作: ${platform}] `;
+    if (activeTheme === "poster") prefix = `[图文生成: ${ratio}, ${style}] `;
     if (activeTheme === "video") prefix = `[视频脚本] `;
-    if (activeTheme === "office") prefix = `[办公文档] `;
+    if (activeTheme === "document") prefix = `[办公文档] `;
     if (activeTheme === "music") prefix = `[歌词曲谱] `;
+    if (activeTheme === "novel") prefix = `[小说创作] `;
     if (activeTheme === "knowledge")
       prefix = `[知识探索: ${depth === "deep" ? "深度" : "快速"}] `;
     if (activeTheme === "planning") prefix = `[计划规划] `;
@@ -429,16 +583,18 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
         return "想了解什么？我可以帮你深度搜索、解析概念或总结长文...";
       case "planning":
         return "告诉我你的目标，无论是旅行计划、职业规划还是活动筹备...";
-      case "social":
+      case "social-media":
         return "输入主题，帮你创作小红书爆款文案、公众号文章...";
-      case "image":
+      case "poster":
         return "描述画面主体、风格、构图，生成精美海报或插画...";
       case "video":
         return "输入视频主题，生成分镜脚本和口播文案...";
-      case "office":
+      case "document":
         return "输入需求，生成周报、汇报PPT大纲或商务邮件...";
       case "music":
         return "输入歌曲主题或情感，帮你创作歌词、设计旋律...";
+      case "novel":
+        return "输入小说主题或情节，帮你创作章节内容...";
       case "general":
         return "有什么我可以帮你的？";
       default:
@@ -507,7 +663,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
 
           <Toolbar>
             <ToolLoginLeft>
-              {activeTheme === "social" && (
+              {activeTheme === "social-media" && (
                 <>
                   <Select
                     value={platform}
@@ -649,7 +805,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
                 </Badge>
               )}
 
-              {activeTheme === "image" && (
+              {activeTheme === "poster" && (
                 <>
                   <Popover>
                     <PopoverTrigger asChild>
@@ -760,66 +916,26 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
 
         {/* Dynamic Inspiration/Tips based on Tab - Styled nicely */}
         <div className="w-full max-w-[800px] flex flex-wrap gap-3 justify-center">
-          {activeTheme === "social" &&
-            ["爆款标题生成", "小红书文案", "公众号排版", "评论区回复"].map(
-              (item) => (
-                <Badge
-                  key={item}
-                  variant="secondary"
-                  className="px-4 py-2 text-xs font-normal cursor-pointer hover:bg-muted-foreground/10 transition-colors"
-                >
-                  ✨ {item}
-                </Badge>
-              ),
-            )}
-          {activeTheme === "image" &&
-            ["海报设计", "插画生成", "UI 界面", "Logo 设计", "摄影修图"].map(
-              (item) => (
-                <Badge
-                  key={item}
-                  variant="secondary"
-                  className="px-4 py-2 text-xs font-normal cursor-pointer hover:bg-muted-foreground/10 transition-colors"
-                >
-                  🎨 {item}
-                </Badge>
-              ),
-            )}
-          {activeTheme === "knowledge" &&
-            ["解释量子计算", "总结这篇论文", "如何制定OKR", "分析行业趋势"].map(
-              (item) => (
-                <Badge
-                  key={item}
-                  variant="secondary"
-                  className="px-4 py-2 text-xs font-normal cursor-pointer hover:bg-muted-foreground/10 transition-colors"
-                >
-                  🔍 {item}
-                </Badge>
-              ),
-            )}
-          {activeTheme === "planning" &&
-            ["日本旅行计划", "年度职业规划", "婚礼流程表", "健身计划"].map(
-              (item) => (
-                <Badge
-                  key={item}
-                  variant="secondary"
-                  className="px-4 py-2 text-xs font-normal cursor-pointer hover:bg-muted-foreground/10 transition-colors"
-                >
-                  📅 {item}
-                </Badge>
-              ),
-            )}
-          {activeTheme === "music" &&
-            ["流行情歌", "古风歌词", "说唱歌词", "儿歌创作", "旋律学习"].map(
-              (item) => (
-                <Badge
-                  key={item}
-                  variant="secondary"
-                  className="px-4 py-2 text-xs font-normal cursor-pointer hover:bg-muted-foreground/10 transition-colors"
-                >
-                  🎵 {item}
-                </Badge>
-              ),
-            )}
+          {RECOMMENDATIONS[activeTheme]?.map(([shortLabel, fullPrompt]) => (
+            <Badge
+              key={shortLabel}
+              variant="secondary"
+              className="px-4 py-2 text-xs font-normal cursor-pointer hover:bg-muted-foreground/10 transition-colors"
+              title={fullPrompt}
+              onClick={() => {
+                if (onRecommendationClick) {
+                  onRecommendationClick(shortLabel, fullPrompt);
+                } else {
+                  setInput(fullPrompt);
+                  setTimeout(() => {
+                    onSend(fullPrompt);
+                  }, 100);
+                }
+              }}
+            >
+              {THEME_ICONS[activeTheme] || "✨"} {shortLabel}
+            </Badge>
+          ))}
         </div>
       </ContentWrapper>
     </Container>

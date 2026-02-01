@@ -111,6 +111,306 @@ function getMusicWorkflowSteps(mode: CreationMode): StepDefinition[] {
 }
 
 /**
+ * 获取社媒内容创作工作流步骤
+ */
+function getSocialMediaWorkflowSteps(mode: CreationMode): StepDefinition[] {
+  // 快速模式：3 步骤（明确需求 → 生成内容 → 平台适配）
+  if (mode === "fast") {
+    return [
+      {
+        id: "brief",
+        type: "clarify",
+        title: "明确需求",
+        description: "定义内容主题、平台和风格",
+        aiTask: { taskType: "brief", streaming: true },
+        behavior: { skippable: false, redoable: true, autoAdvance: true },
+      },
+      {
+        id: "create",
+        type: "write",
+        title: "生成内容",
+        description: "AI 生成社媒内容",
+        aiTask: { taskType: "create", streaming: true },
+        behavior: { skippable: false, redoable: true, autoAdvance: false },
+      },
+      {
+        id: "adapt",
+        type: "adapt",
+        title: "平台适配",
+        description: "适配目标平台格式",
+        aiTask: { taskType: "adapt", streaming: true },
+        behavior: { skippable: true, redoable: true, autoAdvance: false },
+      },
+    ];
+  }
+
+  // 引导模式：4 步骤
+  return [
+    {
+      id: "brief",
+      type: "clarify",
+      title: "明确需求",
+      description: "定义内容主题、目标受众和平台",
+      aiTask: { taskType: "brief", streaming: true },
+      behavior: { skippable: false, redoable: true, autoAdvance: true },
+    },
+    {
+      id: "create",
+      type: "write",
+      title: "创作内容",
+      description: "AI 生成社媒文案",
+      aiTask: { taskType: "create", streaming: true },
+      behavior: { skippable: false, redoable: true, autoAdvance: false },
+    },
+    {
+      id: "polish",
+      type: "polish",
+      title: "润色优化",
+      description: "优化文案表达和吸引力",
+      aiTask: { taskType: "polish", streaming: true },
+      behavior: { skippable: true, redoable: true, autoAdvance: false },
+    },
+    {
+      id: "adapt",
+      type: "adapt",
+      title: "平台适配",
+      description: "适配不同平台的格式要求",
+      aiTask: { taskType: "adapt", streaming: true },
+      behavior: { skippable: true, redoable: true, autoAdvance: false },
+    },
+  ];
+}
+
+/**
+ * 获取视频脚本创作工作流步骤
+ */
+function getVideoWorkflowSteps(mode: CreationMode): StepDefinition[] {
+  // 快速模式：3 步骤（明确需求 → 生成剧本 → 润色优化）
+  if (mode === "fast") {
+    return [
+      {
+        id: "brief",
+        type: "clarify",
+        title: "明确需求",
+        description: "定义视频主题、时长和风格",
+        aiTask: { taskType: "brief", streaming: true },
+        behavior: { skippable: false, redoable: true, autoAdvance: true },
+      },
+      {
+        id: "script",
+        type: "write",
+        title: "生成剧本",
+        description: "AI 生成视频脚本",
+        aiTask: { taskType: "script", streaming: true },
+        behavior: { skippable: false, redoable: true, autoAdvance: false },
+      },
+      {
+        id: "polish",
+        type: "polish",
+        title: "润色优化",
+        description: "优化剧本内容",
+        aiTask: { taskType: "polish", streaming: true },
+        behavior: { skippable: true, redoable: true, autoAdvance: false },
+      },
+    ];
+  }
+
+  // 引导模式：5 步骤
+  return [
+    {
+      id: "brief",
+      type: "clarify",
+      title: "明确需求",
+      description: "定义视频主题、时长和目标受众",
+      aiTask: { taskType: "brief", streaming: true },
+      behavior: { skippable: false, redoable: true, autoAdvance: true },
+    },
+    {
+      id: "outline",
+      type: "outline",
+      title: "剧情大纲",
+      description: "规划视频整体结构和节奏",
+      aiTask: { taskType: "outline", streaming: true },
+      behavior: { skippable: false, redoable: true, autoAdvance: false },
+    },
+    {
+      id: "storyboard",
+      type: "research",
+      title: "分镜设计",
+      description: "设计关键画面和镜头",
+      aiTask: { taskType: "storyboard", streaming: true },
+      behavior: { skippable: true, redoable: true, autoAdvance: false },
+    },
+    {
+      id: "script",
+      type: "write",
+      title: "撰写剧本",
+      description: "撰写完整视频脚本",
+      aiTask: { taskType: "script", streaming: true },
+      behavior: { skippable: false, redoable: true, autoAdvance: false },
+    },
+    {
+      id: "polish",
+      type: "polish",
+      title: "润色优化",
+      description: "优化台词和节奏",
+      aiTask: { taskType: "polish", streaming: true },
+      behavior: { skippable: true, redoable: true, autoAdvance: false },
+    },
+  ];
+}
+
+/**
+ * 获取小说创作工作流步骤
+ */
+function getNovelWorkflowSteps(mode: CreationMode): StepDefinition[] {
+  // 快速模式：3 步骤（明确需求 → 生成章节 → 润色优化）
+  if (mode === "fast") {
+    return [
+      {
+        id: "brief",
+        type: "clarify",
+        title: "明确需求",
+        description: "定义故事主题、类型和风格",
+        aiTask: { taskType: "brief", streaming: true },
+        behavior: { skippable: false, redoable: true, autoAdvance: true },
+      },
+      {
+        id: "write",
+        type: "write",
+        title: "生成章节",
+        description: "AI 生成小说内容",
+        aiTask: { taskType: "write", streaming: true },
+        behavior: { skippable: false, redoable: true, autoAdvance: false },
+      },
+      {
+        id: "polish",
+        type: "polish",
+        title: "润色优化",
+        description: "优化文笔和情节",
+        aiTask: { taskType: "polish", streaming: true },
+        behavior: { skippable: true, redoable: true, autoAdvance: false },
+      },
+    ];
+  }
+
+  // 引导模式：5 步骤
+  return [
+    {
+      id: "brief",
+      type: "clarify",
+      title: "明确需求",
+      description: "定义故事主题、类型和目标读者",
+      aiTask: { taskType: "brief", streaming: true },
+      behavior: { skippable: false, redoable: true, autoAdvance: true },
+    },
+    {
+      id: "outline",
+      type: "outline",
+      title: "章节大纲",
+      description: "规划故事结构和章节",
+      aiTask: { taskType: "outline", streaming: true },
+      behavior: { skippable: false, redoable: true, autoAdvance: false },
+    },
+    {
+      id: "character",
+      type: "research",
+      title: "角色设定",
+      description: "设计主要角色和背景",
+      aiTask: { taskType: "character", streaming: true },
+      behavior: { skippable: true, redoable: true, autoAdvance: false },
+    },
+    {
+      id: "write",
+      type: "write",
+      title: "撰写内容",
+      description: "撰写小说章节",
+      aiTask: { taskType: "write", streaming: true },
+      behavior: { skippable: false, redoable: true, autoAdvance: false },
+    },
+    {
+      id: "polish",
+      type: "polish",
+      title: "润色优化",
+      description: "优化文笔和情节连贯性",
+      aiTask: { taskType: "polish", streaming: true },
+      behavior: { skippable: true, redoable: true, autoAdvance: false },
+    },
+  ];
+}
+
+/**
+ * 获取文档创作工作流步骤
+ */
+function getDocumentWorkflowSteps(mode: CreationMode): StepDefinition[] {
+  // 快速模式：3 步骤（明确需求 → 生成文档 → 润色优化）
+  if (mode === "fast") {
+    return [
+      {
+        id: "brief",
+        type: "clarify",
+        title: "明确需求",
+        description: "定义文档主题、类型和受众",
+        aiTask: { taskType: "brief", streaming: true },
+        behavior: { skippable: false, redoable: true, autoAdvance: true },
+      },
+      {
+        id: "write",
+        type: "write",
+        title: "生成文档",
+        description: "AI 生成文档内容",
+        aiTask: { taskType: "write", streaming: true },
+        behavior: { skippable: false, redoable: true, autoAdvance: false },
+      },
+      {
+        id: "polish",
+        type: "polish",
+        title: "润色优化",
+        description: "优化文档结构和表达",
+        aiTask: { taskType: "polish", streaming: true },
+        behavior: { skippable: true, redoable: true, autoAdvance: false },
+      },
+    ];
+  }
+
+  // 引导模式：4 步骤
+  return [
+    {
+      id: "brief",
+      type: "clarify",
+      title: "明确需求",
+      description: "定义文档主题、类型和目标读者",
+      aiTask: { taskType: "brief", streaming: true },
+      behavior: { skippable: false, redoable: true, autoAdvance: true },
+    },
+    {
+      id: "outline",
+      type: "outline",
+      title: "文档大纲",
+      description: "规划文档结构和章节",
+      aiTask: { taskType: "outline", streaming: true },
+      behavior: { skippable: false, redoable: true, autoAdvance: false },
+    },
+    {
+      id: "write",
+      type: "write",
+      title: "撰写内容",
+      description: "撰写文档正文",
+      aiTask: { taskType: "write", streaming: true },
+      behavior: { skippable: false, redoable: true, autoAdvance: false },
+    },
+    {
+      id: "polish",
+      type: "polish",
+      title: "润色优化",
+      description: "优化结构和语言表达",
+      aiTask: { taskType: "polish", streaming: true },
+      behavior: { skippable: true, redoable: true, autoAdvance: false },
+    },
+  ];
+}
+
+/**
  * 获取海报创作工作流步骤
  */
 function getPosterWorkflowSteps(mode: CreationMode): StepDefinition[] {
@@ -191,190 +491,37 @@ function getPosterWorkflowSteps(mode: CreationMode): StepDefinition[] {
 
 /**
  * 获取主题对应的工作流步骤
+ * 导出供测试使用
  */
-function getWorkflowSteps(
+export function getWorkflowSteps(
   theme: ThemeType,
   mode: CreationMode,
 ): StepDefinition[] {
-  // 通用对话不需要工作流
-  if (theme === "general") {
-    return [];
+  switch (theme) {
+    // 不显示进度条的类型
+    case "general":
+    case "knowledge":
+    case "planning":
+      return [];
+
+    // 有专用工作流的类型
+    case "music":
+      return getMusicWorkflowSteps(mode);
+    case "poster":
+      return getPosterWorkflowSteps(mode);
+    case "social-media":
+      return getSocialMediaWorkflowSteps(mode);
+    case "video":
+      return getVideoWorkflowSteps(mode);
+    case "novel":
+      return getNovelWorkflowSteps(mode);
+    case "document":
+      return getDocumentWorkflowSteps(mode);
+
+    // 未知类型不显示进度条
+    default:
+      return [];
   }
-
-  // 音乐主题：使用专门的音乐创作步骤
-  if (theme === "music") {
-    return getMusicWorkflowSteps(mode);
-  }
-
-  // 海报主题：使用专门的海报创作步骤
-  if (theme === "poster") {
-    return getPosterWorkflowSteps(mode);
-  }
-
-  // 快速模式：简化步骤（收集需求 → 生成初稿 → 迭代修改）
-  if (mode === "fast") {
-    return [
-      {
-        id: "clarify",
-        type: "clarify",
-        title: "明确需求",
-        description: "填写创作主题和要求",
-        form: {
-          fields: [
-            { name: "topic", label: "内容主题", type: "text", required: true },
-            {
-              name: "keyPoints",
-              label: "核心要点",
-              type: "text",
-              required: false,
-            },
-            {
-              name: "audience",
-              label: "目标读者",
-              type: "select",
-              required: false,
-              options: [
-                { label: "普通大众", value: "general" },
-                { label: "专业人士", value: "professional" },
-                { label: "学生群体", value: "student" },
-                { label: "技术开发者", value: "developer" },
-              ],
-            },
-            {
-              name: "wordCount",
-              label: "字数要求",
-              type: "select",
-              required: false,
-              options: [
-                { label: "1000字左右", value: "1000" },
-                { label: "2000字左右", value: "2000" },
-                { label: "3000字左右", value: "3000" },
-                { label: "5000字以上", value: "5000" },
-              ],
-            },
-          ],
-          submitLabel: "开始生成",
-        },
-        behavior: { skippable: false, redoable: true, autoAdvance: true },
-      },
-      {
-        id: "write",
-        type: "write",
-        title: "生成初稿",
-        description: "AI 生成完整初稿",
-        aiTask: { taskType: "write", streaming: true },
-        behavior: { skippable: false, redoable: true, autoAdvance: false },
-      },
-      {
-        id: "polish",
-        type: "polish",
-        title: "迭代修改",
-        description: "根据反馈修改完善",
-        aiTask: { taskType: "polish", streaming: true },
-        behavior: { skippable: true, redoable: true, autoAdvance: false },
-      },
-    ];
-  }
-
-  // 基础步骤定义（引导模式和其他模式）
-  const baseSteps: StepDefinition[] = [
-    {
-      id: "clarify",
-      type: "clarify",
-      title: "明确需求",
-      description: "确认创作主题、目标读者和风格",
-      form: {
-        fields: [
-          { name: "topic", label: "内容主题", type: "text", required: true },
-          {
-            name: "audience",
-            label: "目标读者",
-            type: "select",
-            required: false,
-            options: [
-              { label: "普通大众", value: "general" },
-              { label: "专业人士", value: "professional" },
-              { label: "学生群体", value: "student" },
-              { label: "技术开发者", value: "developer" },
-            ],
-          },
-          {
-            name: "style",
-            label: "内容风格",
-            type: "radio",
-            required: false,
-            options: [
-              { label: "专业严谨", value: "professional" },
-              { label: "轻松活泼", value: "casual" },
-              { label: "深度分析", value: "analytical" },
-              { label: "故事叙述", value: "narrative" },
-            ],
-          },
-        ],
-        submitLabel: "确认并继续",
-        skipLabel: "跳过",
-      },
-      behavior: { skippable: false, redoable: true, autoAdvance: true },
-    },
-    {
-      id: "research",
-      type: "research",
-      title: "调研收集",
-      description: "AI 搜索相关资料，你可以补充真实经历",
-      aiTask: { taskType: "research", streaming: true },
-      behavior: { skippable: true, redoable: true, autoAdvance: false },
-    },
-    {
-      id: "outline",
-      type: "outline",
-      title: "生成大纲",
-      description: "AI 生成内容大纲，你可以调整顺序",
-      aiTask: { taskType: "outline", streaming: true },
-      behavior: { skippable: false, redoable: true, autoAdvance: false },
-    },
-    {
-      id: "write",
-      type: "write",
-      title: "撰写内容",
-      description: "根据模式不同，AI 和你协作完成内容",
-      aiTask: { taskType: "write", streaming: true },
-      behavior: { skippable: false, redoable: true, autoAdvance: false },
-    },
-    {
-      id: "polish",
-      type: "polish",
-      title: "润色优化",
-      description: "AI 检查并建议优化",
-      aiTask: { taskType: "polish", streaming: true },
-      behavior: { skippable: true, redoable: true, autoAdvance: false },
-    },
-    {
-      id: "adapt",
-      type: "adapt",
-      title: "适配发布",
-      description: "选择目标平台，AI 自动适配格式",
-      form: {
-        fields: [
-          {
-            name: "platform",
-            label: "目标平台",
-            type: "checkbox",
-            required: true,
-            options: [
-              { label: "微信公众号", value: "wechat" },
-              { label: "小红书", value: "xiaohongshu" },
-              { label: "知乎", value: "zhihu" },
-              { label: "通用 Markdown", value: "markdown" },
-            ],
-          },
-        ],
-        submitLabel: "生成适配版本",
-      },
-      behavior: { skippable: true, redoable: true, autoAdvance: false },
-    },
-  ];
-
-  return baseSteps;
 }
 
 /**

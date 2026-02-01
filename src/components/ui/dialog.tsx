@@ -65,19 +65,33 @@ const DialogTrigger: React.FC<DialogTriggerProps> = ({ asChild, children }) => {
 interface DialogContentProps {
   className?: string;
   children: React.ReactNode;
+  maxWidth?: string;
 }
 
 const DialogContent: React.FC<DialogContentProps> = ({
   className,
   children,
+  maxWidth,
 }) => {
   const context = useContext(DialogContext);
   if (!context) throw new Error("DialogContent must be used within Dialog");
 
   const { open, setOpen } = context;
 
+  // 从 className 中提取 max-w 类
+  const maxWidthFromClass = className?.match(/(?:sm:)?max-w-\[?\w+\]?/)?.[0];
+  const finalMaxWidth = maxWidth || maxWidthFromClass || "max-w-lg";
+  const filteredClassName = className
+    ?.replace(/(?:sm:)?max-w-\[?\w+\]?/g, "")
+    .trim();
+
   return (
-    <Modal isOpen={open} onClose={() => setOpen(false)} className={className}>
+    <Modal
+      isOpen={open}
+      onClose={() => setOpen(false)}
+      className={cn("p-6", filteredClassName)}
+      maxWidth={finalMaxWidth}
+    >
       {children}
     </Modal>
   );

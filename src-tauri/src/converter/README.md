@@ -15,6 +15,7 @@
 - `cw_to_openai.rs` - CodeWhisperer → OpenAI 转换
 - `anthropic_to_openai.rs` - Anthropic → OpenAI 转换
 - `openai_to_antigravity.rs` - OpenAI → Antigravity (Gemini CLI) 转换
+- `reasoning_handler.rs` - 推理内容处理器（DeepSeek/OpenAI o1 等）
 
 ## 工具类型支持
 
@@ -24,6 +25,29 @@
 ### 特殊工具
 - `web_search`: 联网搜索工具（Codex/Kiro 格式）
 - `web_search_20250305`: 联网搜索工具（Claude Code 格式）
+
+## 推理内容处理
+
+### 支持的模型
+
+| 模型 | 字段名 | 多轮对话处理 |
+|------|--------|--------------|
+| DeepSeek R1/Reasoner | `reasoning_content` | 丢弃历史，只保留最后一条 |
+| OpenAI o1/o3/o4 | `reasoning` | 通过 `previous_response_id` 引用 |
+
+### 使用方式
+
+```rust
+use crate::converter::ReasoningHandler;
+
+// 预处理消息，清理历史 reasoning_content
+let processed = ReasoningHandler::preprocess_messages(messages, "deepseek-reasoner");
+
+// 检查模型是否需要清理
+if ReasoningHandler::needs_reasoning_cleanup(&model) {
+    // 执行清理逻辑
+}
+```
 
 ## Antigravity 转换说明
 
@@ -36,6 +60,7 @@
 
 ## 更新日志
 
+- 2026-02-01: 添加 reasoning_handler 模块，支持 DeepSeek/OpenAI 推理模型
 - 2025-12-28: 修复 Antigravity 转换，对齐 CLIProxyAPI 实现
 - 2025-12-27: 添加 web_search 工具支持，修复 Issue #49
 

@@ -21,4 +21,19 @@ export type Page =
   | "files"
   | "web"
   | "image-analysis"
+  | "projects"
   | `plugin:${string}`;
+
+/**
+ * Agent 页面参数
+ * 用于从项目入口跳转到创作界面时传递项目上下文
+ */
+export interface AgentPageParams {
+  projectId?: string;
+  contentId?: string;
+}
+
+/**
+ * 页面参数联合类型
+ */
+export type PageParams = AgentPageParams | Record<string, unknown>;

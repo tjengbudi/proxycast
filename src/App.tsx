@@ -20,6 +20,9 @@ import { ToolsPage } from "./components/tools/ToolsPage";
 import { AgentChatPage } from "./components/agent";
 import { PluginsPage } from "./components/plugins/PluginsPage";
 import { ImageGenPage } from "./components/image-gen";
+import { ProjectsPage } from "./components/projects";
+import { CreateProjectDialog } from "./components/projects/CreateProjectDialog";
+import { ProjectType } from "./lib/api/project";
 
 import {
   TerminalWorkspace,
@@ -36,7 +39,10 @@ import { useRelayRegistry } from "./hooks/useRelayRegistry";
 import { ComponentDebugProvider } from "./contexts/ComponentDebugContext";
 import { SoundProvider } from "./contexts/SoundProvider";
 import { ComponentDebugOverlay } from "./components/dev";
-import { Page } from "./types/page";
+import { Page, PageParams, AgentPageParams } from "./types/page";
+import { open } from "@tauri-apps/plugin-dialog";
+import { createProject, createContent } from "./lib/api/project";
+import { toast } from "sonner";
 
 const AppContainer = styled.div`
   display: flex;
@@ -77,7 +83,113 @@ const FullscreenWrapper = styled.div<{ $isActive: boolean }>`
 function AppContent() {
   const [showSplash, setShowSplash] = useState(true);
   const [currentPage, setCurrentPage] = useState<Page>("agent");
+  const [pageParams, setPageParams] = useState<PageParams>({});
   const { needsOnboarding, completeOnboarding } = useOnboardingState();
+
+  // 推荐标签引导创建项目相关状态
+  const [projectDialogOpen, setProjectDialogOpen] = useState(false);
+  const [pendingRecommendation, setPendingRecommendation] = useState<{
+    shortLabel: string;
+    fullPrompt: string;
+    projectType: ProjectType;
+    projectName: string;
+  } | null>(null);
+
+  // 带参数的页面导航
+  const handleNavigate = useCallback((page: Page, params?: PageParams) => {
+    setCurrentPage(page);
+    if (params) {
+      setPageParams(params);
+    } else {
+      setPageParams({});
+    }
+  }, []);
+
+  // 推荐标签点击处理 - 打开创建项目对话框
+  const _handleRequestRecommendation = useCallback(
+    (shortLabel: string, fullPrompt: string, currentTheme: string) => {
+      // 主题标签映射
+      const themeLabels: Record<string, string> = {
+        "social-media": "社媒",
+        poster: "海报",
+        music: "音乐",
+        knowledge: "知识",
+        planning: "计划",
+        novel: "小说",
+        document: "文档",
+        video: "视频",
+        general: "对话",
+      };
+
+      const prefix = themeLabels[currentTheme] || "项目";
+      const projectName = `${prefix}：${shortLabel}`;
+
+      setPendingRecommendation({
+        shortLabel,
+        fullPrompt,
+        projectType: currentTheme as ProjectType,
+        projectName,
+      });
+      setProjectDialogOpen(true);
+    },
+    [],
+  );
+
+  // 创建项目并创建初始内容
+  const handleCreateProjectFromRecommendation = async (
+    name: string,
+    type: ProjectType,
+  ) => {
+    // 选择项目目录
+    const selectedPath = await open({
+      directory: true,
+      title: "选择项目目录",
+    });
+
+    if (!selectedPath) {
+      throw new Error("用户取消选择目录");
+    }
+
+    const projectPath = Array.isArray(selectedPath)
+      ? selectedPath.length === 1
+        ? selectedPath[0]
+        : null
+      : selectedPath;
+
+    if (!projectPath) {
+      throw new Error("请选择单个项目目录");
+    }
+
+    // 创建项目
+    const project = await createProject({
+      name,
+      rootPath: projectPath,
+      workspaceType: type,
+    });
+
+    // 如果有待处理的推荐内容，创建初始 Content
+    if (pendingRecommendation) {
+      const content = await createContent({
+        project_id: project.id,
+        title: name,
+        body: pendingRecommendation.fullPrompt,
+      });
+
+      // 导航到 Agent 页面
+      handleNavigate("agent", {
+        projectId: project.id,
+        contentId: content.id,
+      });
+
+      // 清除待处理的推荐
+      setPendingRecommendation(null);
+    } else {
+      // 没有初始内容，直接导航到项目页面
+      handleNavigate("projects");
+    }
+
+    toast.success("项目创建成功");
+  };
 
   // Deep Link 处理 Hook
   // _Requirements: 5.2_
@@ -168,8 +280,16 @@ function AppContent() {
             flexDirection: "column",
           }}
         >
-          <AgentChatPage />
+          <AgentChatPage
+            projectId={(pageParams as AgentPageParams).projectId}
+            contentId={(pageParams as AgentPageParams).contentId}
+          />
         </div>
+
+        {/* 项目页面 */}
+        <PageWrapper $isActive={currentPage === "projects"}>
+          <ProjectsPage onNavigate={handleNavigate} />
+        </PageWrapper>
 
         {/* 终端工作区 - 使用 div 包装以支持显示/隐藏 */}
         <div
@@ -243,7 +363,7 @@ function AppContent() {
     <SoundProvider>
       <ComponentDebugProvider>
         <AppContainer>
-          <AppSidebar currentPage={currentPage} onNavigate={setCurrentPage} />
+          <AppSidebar currentPage={currentPage} onNavigate={handleNavigate} />
           <MainContent>{renderAllPages()}</MainContent>
           {/* ProxyCast Connect 确认弹窗 */}
           {/* _Requirements: 5.2_ */}
@@ -258,6 +378,20 @@ function AppContent() {
             error={error}
             onConfirm={handleConfirm}
             onCancel={handleCancel}
+          />
+          {/* 创建项目对话框 - 用于推荐标签引导创建 */}
+          <CreateProjectDialog
+            open={projectDialogOpen}
+            onOpenChange={(open) => {
+              setProjectDialogOpen(open);
+              if (!open) {
+                // 用户取消，清除待处理的推荐
+                setPendingRecommendation(null);
+              }
+            }}
+            onSubmit={handleCreateProjectFromRecommendation}
+            defaultType={pendingRecommendation?.projectType}
+            defaultName={pendingRecommendation?.projectName}
           />
           {/* 组件视图调试覆盖层 */}
           <ComponentDebugOverlay />

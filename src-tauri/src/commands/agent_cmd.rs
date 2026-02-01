@@ -146,6 +146,7 @@ pub async fn agent_create_session(
         model: model_name.clone(),
         messages: Vec::new(),
         system_prompt: final_system_prompt,
+        title: None, // 初始会话没有标题，后续会自动生成
         created_at: now.clone(),
         updated_at: now,
     };
@@ -231,6 +232,7 @@ pub struct SessionInfo {
     pub session_id: String,
     pub provider_type: String,
     pub model: Option<String>,
+    pub title: Option<String>,
     pub created_at: String,
     pub last_activity: String,
     pub messages_count: usize,
@@ -252,6 +254,7 @@ pub async fn agent_list_sessions(db: State<'_, DbConnection>) -> Result<Vec<Sess
                 session_id: s.id,
                 provider_type: "aster".to_string(),
                 model: Some(s.model),
+                title: s.title,
                 created_at: s.created_at.clone(),
                 last_activity: s.updated_at,
                 messages_count,
@@ -280,6 +283,7 @@ pub async fn agent_get_session(
         session_id: session.id,
         provider_type: "aster".to_string(),
         model: Some(session.model),
+        title: session.title,
         created_at: session.created_at.clone(),
         last_activity: session.updated_at,
         messages_count,
@@ -307,4 +311,74 @@ pub async fn agent_get_session_messages(
     let messages =
         AgentDao::get_messages(&conn, &session_id).map_err(|e| format!("获取消息失败: {}", e))?;
     Ok(messages)
+}
+
+/// 重命名会话（更新标题）
+#[tauri::command]
+pub async fn agent_rename_session(
+    db: State<'_, DbConnection>,
+    session_id: String,
+    title: String,
+) -> Result<(), String> {
+    let conn = db.lock().map_err(|e| format!("数据库锁定失败: {}", e))?;
+    AgentDao::update_title(&conn, &session_id, &title)
+        .map_err(|e| format!("更新会话标题失败: {}", e))?;
+    Ok(())
+}
+
+/// 生成智能标题
+///
+/// 根据对话内容生成一个简洁的标题
+#[tauri::command]
+pub async fn agent_generate_title(
+    db: State<'_, DbConnection>,
+    session_id: String,
+) -> Result<String, String> {
+    let conn = db.lock().map_err(|e| format!("数据库锁定失败: {}", e))?;
+
+    // 获取会话的前几条消息（用于生成标题）
+    let messages =
+        AgentDao::get_messages(&conn, &session_id).map_err(|e| format!("获取消息失败: {}", e))?;
+
+    // 过滤出 user 和 assistant 消息
+    let chat_messages: Vec<_> = messages
+        .iter()
+        .filter(|msg| msg.role == "user" || msg.role == "assistant")
+        .take(4) // 取前 2 轮对话
+        .collect();
+
+    if chat_messages.len() < 2 {
+        return Ok("新话题".to_string());
+    }
+
+    // 构建对话内容用于 AI 生成标题
+    let mut conversation = String::new();
+    for msg in &chat_messages {
+        let role = if msg.role == "user" {
+            "用户"
+        } else {
+            "助手"
+        };
+        let content = msg.content.as_text();
+        let truncated_content = if content.len() > 100 {
+            format!("{}...", &content[..100])
+        } else {
+            content
+        };
+        conversation.push_str(&format!("{}：{}\n", role, truncated_content));
+    }
+
+    // 使用 AI 生成标题（通过 aster_agent_chat_stream 生成）
+    // 这里简化处理：使用第一条用户消息的前 15 个字作为默认标题
+    if let Some(first_user_msg) = chat_messages.iter().find(|msg| msg.role == "user") {
+        let content = first_user_msg.content.as_text();
+        let title = if content.len() > 15 {
+            format!("{}...", &content[..15])
+        } else {
+            content
+        };
+        Ok(title)
+    } else {
+        Ok("新话题".to_string())
+    }
 }

@@ -283,6 +283,7 @@ export interface SessionInfo {
   session_id: string;
   provider_type: string;
   model?: string;
+  title?: string;
   created_at: string;
   last_activity: string;
   messages_count: number;
@@ -472,6 +473,28 @@ export async function getAgentSessionMessages(
   sessionId: string,
 ): Promise<AgentMessage[]> {
   return await safeInvoke("agent_get_session_messages", {
+    sessionId,
+  });
+}
+
+/**
+ * 重命名会话（更新标题）
+ */
+export async function renameAgentSession(
+  sessionId: string,
+  title: string,
+): Promise<void> {
+  return await safeInvoke("agent_rename_session", {
+    sessionId,
+    title,
+  });
+}
+
+/**
+ * 生成智能标题
+ */
+export async function generateAgentTitle(sessionId: string): Promise<string> {
+  return await safeInvoke("agent_generate_title", {
     sessionId,
   });
 }

@@ -11,6 +11,8 @@ import {
   listAgentSessions,
   deleteAgentSession,
   getAgentSessionMessages,
+  renameAgentSession,
+  generateAgentTitle,
   parseStreamEvent,
   sendPermissionResponse,
   type AgentProcessStatus,
@@ -27,6 +29,7 @@ import {
   getProviderConfig,
   type ProviderConfigMap,
 } from "../types";
+import { useArtifactParser } from "@/lib/artifact/hooks/useArtifactParser";
 
 /** 话题（会话）信息 */
 export interface Topic {
@@ -129,6 +132,17 @@ const saveTransient = (key: string, value: unknown) => {
   }
 };
 
+// 标题手动编辑状态跟踪
+const TITLE_EDITED_KEY_PREFIX = "agent_title_manually_edited_";
+
+const isTitleManuallyEdited = (sessionId: string): boolean => {
+  return loadPersisted(`${TITLE_EDITED_KEY_PREFIX}${sessionId}`, false);
+};
+
+const setTitleManuallyEdited = (sessionId: string, edited: boolean) => {
+  savePersisted(`${TITLE_EDITED_KEY_PREFIX}${sessionId}`, edited);
+};
+
 /** useAgentChat 的配置选项 */
 interface UseAgentChatOptions {
   /** 系统提示词（用于内容创作等场景） */
@@ -172,10 +186,23 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
 
   const [isSending, setIsSending] = useState(false);
 
+  // 当前会话的轮数计数器（用于判断何时生成标题）
+  const [_roundCount, _setRoundCount] = useState(() =>
+    loadTransient("agent_curr_roundCount", 0),
+  );
+
   // 用于保存当前流式请求的取消函数
   const unlistenRef = useRef<UnlistenFn | null>(null);
   // 用于保存当前正在处理的消息 ID
   const currentAssistantMsgIdRef = useRef<string | null>(null);
+
+  // Artifact 解析器 - 用于流式解析 AI 响应中的 artifact
+  const {
+    startParsing: startArtifactParsing,
+    appendChunk: appendArtifactChunk,
+    finalizeParsing: finalizeArtifactParsing,
+    reset: _resetArtifactParser,
+  } = useArtifactParser();
 
   // 加载动态模型配置
   useEffect(() => {
@@ -248,7 +275,7 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
       const sessions = await listAgentSessions();
       const topicList: Topic[] = sessions.map((s: SessionInfo) => ({
         id: s.session_id,
-        title: generateTopicTitle(s),
+        title: s.title || generateTopicTitle(s),
         createdAt: new Date(s.created_at),
         messagesCount: s.messages_count,
       }));
@@ -258,7 +285,7 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
     }
   };
 
-  // 根据会话信息生成话题标题
+  // 根据会话信息生成话题标题（后备方案）
   const generateTopicTitle = (session: SessionInfo): string => {
     if (session.messages_count === 0) {
       return "新话题";
@@ -266,6 +293,42 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
     // 使用创建时间作为默认标题
     const date = new Date(session.created_at);
     return `话题 ${date.toLocaleDateString("zh-CN")} ${date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`;
+  };
+
+  // 生成智能标题
+  const generateSmartTitle = async (targetSessionId: string) => {
+    // 检查是否已手动编辑过
+    if (isTitleManuallyEdited(targetSessionId)) {
+      console.log("[useAgentChat] 标题已手动编辑，跳过自动生成");
+      return;
+    }
+
+    try {
+      const title = await generateAgentTitle(targetSessionId);
+      if (title && title !== "新话题") {
+        await renameAgentSession(targetSessionId, title);
+        // 刷新话题列表
+        await loadTopics();
+        console.log("[useAgentChat] 智能标题已生成:", title);
+      }
+    } catch (error) {
+      console.warn("[useAgentChat] 生成智能标题失败:", error);
+      // 静默失败，不影响用户体验
+    }
+  };
+
+  // 重命名话题
+  const renameTopic = async (targetSessionId: string, newTitle: string) => {
+    try {
+      await renameAgentSession(targetSessionId, newTitle);
+      // 标记为已手动编辑
+      setTitleManuallyEdited(targetSessionId, true);
+      // 刷新话题列表
+      await loadTopics();
+    } catch (error) {
+      console.error("[useAgentChat] 重命名话题失败:", error);
+      toast.error("重命名失败");
+    }
   };
 
   // Initial Load
@@ -409,6 +472,9 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
     // 保存当前消息 ID 到 ref，用于停止时更新状态
     currentAssistantMsgIdRef.current = assistantMsgId;
 
+    // 初始化 Artifact 解析器，开始新的解析会话
+    startArtifactParsing();
+
     // 用于累积流式内容
     let accumulatedContent = "";
     let unlisten: UnlistenFn | null = null;
@@ -500,6 +566,9 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
             // 播放打字机音效
             playTypewriterSound();
 
+            // 流式解析 Artifact
+            appendArtifactChunk(data.text);
+
             setMessages((prev) =>
               prev.map((msg) =>
                 msg.id === assistantMsgId
@@ -561,6 +630,10 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
           case "final_done":
             // 整个对话完成（包括所有工具调用）
             console.log("[AgentChat] 收到 final_done 事件，对话完成");
+
+            // 完成 Artifact 解析
+            finalizeArtifactParsing();
+
             setMessages((prev) =>
               prev.map((msg) =>
                 msg.id === assistantMsgId
@@ -580,6 +653,25 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
               unlisten();
               unlisten = null;
             }
+
+            // 触发智能标题生成（在第 2 轮对话完成后）
+            // 使用闭包中的 activeSessionId 确保获取正确的会话 ID
+            setTimeout(() => {
+              // 从 messages 推断这是第几轮对话
+              setMessages((currentMessages) => {
+                const userMsgCount = currentMessages.filter(
+                  (m) => m.role === "user",
+                ).length;
+                if (userMsgCount === 2 && activeSessionId) {
+                  console.log(
+                    "[useAgentChat] 第 2 轮对话完成，触发智能标题生成",
+                  );
+                  // 异步生成标题，不阻塞消息更新
+                  generateSmartTitle(activeSessionId).catch(console.error);
+                }
+                return currentMessages;
+              });
+            }, 100);
             break;
 
           case "error":
@@ -963,6 +1055,378 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
     toast.info("已停止生成");
   };
 
+  // 触发 AI 引导（不显示用户消息，直接让 AI 开始引导）
+  const triggerAIGuide = async () => {
+    // 只创建 assistant 消息占位符，不创建用户消息
+    const assistantMsgId = crypto.randomUUID();
+    const assistantMsg: Message = {
+      id: assistantMsgId,
+      role: "assistant",
+      content: "",
+      timestamp: new Date(),
+      isThinking: true,
+      thinkingContent: "正在准备创作引导...",
+      contentParts: [],
+    };
+
+    setMessages((prev) => [...prev, assistantMsg]);
+    setIsSending(true);
+
+    // 保存当前消息 ID 到 ref，用于停止时更新状态
+    currentAssistantMsgIdRef.current = assistantMsgId;
+
+    // 用于累积流式内容
+    let accumulatedContent = "";
+    let unlisten: UnlistenFn | null = null;
+
+    // 辅助函数（与 sendMessage 相同）
+    const appendTextToParts = (
+      parts: ContentPart[],
+      text: string,
+    ): ContentPart[] => {
+      const newParts = [...parts];
+      const lastPart = newParts[newParts.length - 1];
+
+      if (lastPart && lastPart.type === "text") {
+        newParts[newParts.length - 1] = {
+          type: "text",
+          text: lastPart.text + text,
+        };
+      } else {
+        newParts.push({ type: "text", text });
+      }
+      return newParts;
+    };
+
+    const appendThinkingToParts = (
+      parts: ContentPart[],
+      text: string,
+    ): ContentPart[] => {
+      const newParts = [...parts];
+      const lastPart = newParts[newParts.length - 1];
+
+      if (lastPart && lastPart.type === "thinking") {
+        newParts[newParts.length - 1] = {
+          type: "thinking",
+          text: lastPart.text + text,
+        };
+      } else {
+        newParts.push({ type: "thinking", text });
+      }
+      return newParts;
+    };
+
+    const addActionRequiredToParts = (
+      parts: ContentPart[],
+      actionRequired: ActionRequired,
+    ): ContentPart[] => {
+      const newParts = [...parts];
+      newParts.push({ type: "action_required", actionRequired });
+      return newParts;
+    };
+
+    try {
+      // 确保有一个活跃的 session
+      const activeSessionId = await _ensureSession();
+      if (!activeSessionId) {
+        throw new Error("无法创建或获取会话");
+      }
+
+      // 创建唯一事件名称
+      const eventName = `agent_stream_${assistantMsgId}`;
+
+      // 设置事件监听器（流式接收）
+      console.log(
+        `[AgentChat] triggerAIGuide 设置事件监听器: ${eventName}, sessionId: ${activeSessionId}`,
+      );
+      unlisten = await safeListen<StreamEvent>(eventName, (event) => {
+        console.log(
+          "[AgentChat] triggerAIGuide 收到事件:",
+          eventName,
+          event.payload,
+        );
+        const data = parseStreamEvent(event.payload);
+        if (!data) {
+          console.warn(
+            "[AgentChat] triggerAIGuide 解析事件失败:",
+            event.payload,
+          );
+          return;
+        }
+
+        switch (data.type) {
+          case "text_delta":
+            accumulatedContent += data.text;
+            playTypewriterSound();
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === assistantMsgId
+                  ? {
+                      ...msg,
+                      content: accumulatedContent,
+                      thinkingContent: undefined,
+                      contentParts: appendTextToParts(
+                        msg.contentParts || [],
+                        data.text,
+                      ),
+                    }
+                  : msg,
+              ),
+            );
+            break;
+
+          case "thinking_delta":
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === assistantMsgId
+                  ? {
+                      ...msg,
+                      thinkingContent: (msg.thinkingContent || "") + data.text,
+                      isThinking: true,
+                      contentParts: appendThinkingToParts(
+                        msg.contentParts || [],
+                        data.text,
+                      ),
+                    }
+                  : msg,
+              ),
+            );
+            break;
+
+          case "done":
+            console.log("[AgentChat] triggerAIGuide 收到 done 事件");
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === assistantMsgId
+                  ? {
+                      ...msg,
+                      content: accumulatedContent || msg.content,
+                    }
+                  : msg,
+              ),
+            );
+            break;
+
+          case "final_done":
+            console.log("[AgentChat] triggerAIGuide 收到 final_done 事件");
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === assistantMsgId
+                  ? {
+                      ...msg,
+                      isThinking: false,
+                      content: accumulatedContent || "(No response)",
+                    }
+                  : msg,
+              ),
+            );
+            setIsSending(false);
+            unlistenRef.current = null;
+            currentAssistantMsgIdRef.current = null;
+            if (unlisten) {
+              unlisten();
+              unlisten = null;
+            }
+            break;
+
+          case "error":
+            console.error(
+              "[AgentChat] triggerAIGuide Stream error:",
+              data.message,
+            );
+            toast.error(`响应错误: ${data.message}`, {
+              id: `stream-error-${Date.now()}`,
+              duration: 8000,
+            });
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === assistantMsgId
+                  ? {
+                      ...msg,
+                      isThinking: false,
+                      content: accumulatedContent || `错误: ${data.message}`,
+                    }
+                  : msg,
+              ),
+            );
+            setIsSending(false);
+            unlistenRef.current = null;
+            currentAssistantMsgIdRef.current = null;
+            if (unlisten) {
+              unlisten();
+              unlisten = null;
+            }
+            break;
+
+          case "tool_start": {
+            console.log(`[Tool Start] ${data.tool_name} (${data.tool_id})`);
+            playToolcallSound();
+
+            const newToolCall = {
+              id: data.tool_id,
+              name: data.tool_name,
+              arguments: data.arguments,
+              status: "running" as const,
+              startTime: new Date(),
+            };
+
+            const toolName = data.tool_name.toLowerCase();
+            if (toolName.includes("write") || toolName.includes("create")) {
+              try {
+                const args = JSON.parse(data.arguments || "{}");
+                const filePath = args.path || args.file_path || args.filePath;
+                const content = args.content || args.text || "";
+                if (filePath && content && onWriteFile) {
+                  onWriteFile(content, filePath);
+                }
+              } catch (e) {
+                console.warn("[Tool Start] 解析工具参数失败:", e);
+              }
+            }
+
+            setMessages((prev) =>
+              prev.map((msg) => {
+                if (msg.id !== assistantMsgId) return msg;
+                const existingToolCall = msg.toolCalls?.find(
+                  (tc) => tc.id === data.tool_id,
+                );
+                if (existingToolCall) return msg;
+
+                return {
+                  ...msg,
+                  toolCalls: [...(msg.toolCalls || []), newToolCall],
+                  contentParts: [
+                    ...(msg.contentParts || []),
+                    { type: "tool_use" as const, toolCall: newToolCall },
+                  ],
+                };
+              }),
+            );
+            break;
+          }
+
+          case "action_required": {
+            console.log(
+              `[Action Required] ${data.action_type} (${data.request_id})`,
+            );
+
+            const actionRequired: ActionRequired = {
+              requestId: data.request_id,
+              actionType: data.action_type as
+                | "tool_confirmation"
+                | "ask_user"
+                | "elicitation",
+              toolName: data.tool_name,
+              arguments: data.arguments,
+              prompt: data.prompt,
+              questions: data.questions,
+              requestedSchema: data.requested_schema,
+            };
+
+            setMessages((prev) =>
+              prev.map((msg) => {
+                if (msg.id !== assistantMsgId) return msg;
+                const existingRequest = msg.actionRequests?.find(
+                  (ar) => ar.requestId === data.request_id,
+                );
+                if (existingRequest) return msg;
+
+                return {
+                  ...msg,
+                  actionRequests: [
+                    ...(msg.actionRequests || []),
+                    actionRequired,
+                  ],
+                  contentParts: addActionRequiredToParts(
+                    msg.contentParts || [],
+                    actionRequired,
+                  ),
+                };
+              }),
+            );
+            break;
+          }
+
+          case "tool_end": {
+            console.log(`[Tool End] ${data.tool_id}`);
+            setMessages((prev) =>
+              prev.map((msg) => {
+                if (msg.id !== assistantMsgId) return msg;
+
+                const updatedToolCalls = (msg.toolCalls || []).map((tc) =>
+                  tc.id === data.tool_id
+                    ? {
+                        ...tc,
+                        status: data.result.success
+                          ? ("completed" as const)
+                          : ("failed" as const),
+                        result: data.result,
+                        endTime: new Date(),
+                      }
+                    : tc,
+                );
+
+                const updatedContentParts = (msg.contentParts || []).map(
+                  (part) => {
+                    if (
+                      part.type === "tool_use" &&
+                      part.toolCall.id === data.tool_id
+                    ) {
+                      return {
+                        ...part,
+                        toolCall: {
+                          ...part.toolCall,
+                          status: data.result.success
+                            ? ("completed" as const)
+                            : ("failed" as const),
+                          result: data.result,
+                          endTime: new Date(),
+                        },
+                      };
+                    }
+                    return part;
+                  },
+                );
+
+                return {
+                  ...msg,
+                  toolCalls: updatedToolCalls,
+                  contentParts: updatedContentParts,
+                };
+              }),
+            );
+            break;
+          }
+        }
+      });
+
+      // 保存 unlisten 到 ref
+      unlistenRef.current = unlisten;
+
+      // 发送空消息，让 AI 根据系统提示词开始引导
+      console.log("[AgentChat] triggerAIGuide 发送空消息触发引导");
+      await sendAgentMessageStream(
+        "", // 空消息，让 AI 根据系统提示词开始引导
+        eventName,
+        activeSessionId,
+        model || undefined,
+        undefined,
+        providerType,
+      );
+    } catch (error) {
+      console.error("[AgentChat] triggerAIGuide failed:", error);
+      toast.error(`启动引导失败: ${error}`, {
+        id: `guide-error-${Date.now()}`,
+        duration: 8000,
+      });
+      setMessages((prev) => prev.filter((msg) => msg.id !== assistantMsgId));
+      setIsSending(false);
+      if (unlisten) {
+        unlisten();
+      }
+    }
+  };
+
   // 处理权限确认响应
   const handlePermissionResponse = async (response: ConfirmResponse) => {
     try {
@@ -1017,6 +1481,7 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
     deleteMessage,
     editMessage,
     handlePermissionResponse, // 权限确认响应处理
+    triggerAIGuide, // 触发 AI 引导
 
     // 话题管理
     topics,
@@ -1024,5 +1489,7 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
     switchTopic,
     deleteTopic,
     loadTopics,
+    renameTopic, // 重命名话题
+    generateSmartTitle, // 智能标题生成
   };
 }

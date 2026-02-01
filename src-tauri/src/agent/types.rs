@@ -130,6 +130,8 @@ pub struct AgentSession {
     pub messages: Vec<AgentMessage>,
     /// 系统提示词
     pub system_prompt: Option<String>,
+    /// 会话标题（可选，用于 UI 显示）
+    pub title: Option<String>,
     /// 创建时间
     pub created_at: String,
     /// 最后活动时间

@@ -1,0 +1,335 @@
+# Artifact 组件
+
+Artifact 系统的 UI 组件，用于渲染和管理各种类型的结构化内容。
+
+## 目录结构
+
+```
+artifact/
+├── renderers/                  # 各类型渲染器
+│   ├── CodeRenderer.tsx        # 代码渲染器
+│   ├── HtmlRenderer.tsx        # HTML 渲染器
+│   ├── SvgRenderer.tsx         # SVG 渲染器
+│   ├── MermaidRenderer.tsx     # Mermaid 渲染器
+│   ├── ReactRenderer.tsx       # React 渲染器
+│   └── index.ts                # 渲染器导出
+├── ArtifactList.tsx            # 列表组件
+├── ArtifactPanel.tsx           # 侧边面板组件
+├── ArtifactRenderer.tsx        # 统一渲染入口
+├── ArtifactToolbar.tsx         # 工具栏组件
+├── CanvasAdapter.tsx           # Canvas 系统适配器
+├── ErrorFallbackRenderer.tsx   # 错误回退渲染器
+├── README.md                   # 本文件
+└── index.ts                    # 模块导出（待创建）
+```
+
+## 渲染器组件
+
+### CodeRenderer
+
+代码渲染器，支持语法高亮、行号显示、复制功能和流式内容更新。
+
+**功能特性：**
+- 使用 react-syntax-highlighter 实现语法高亮
+- 显示行号（超过 1 行时）
+- 提供复制到剪贴板功能
+- 支持从 artifact 元数据检测语言
+- 支持流式内容更新，无闪烁
+
+**使用示例：**
+```tsx
+import { CodeRenderer } from '@/components/artifact/renderers/CodeRenderer';
+
+<CodeRenderer
+  artifact={{
+    id: '1',
+    type: 'code',
+    title: 'example.ts',
+    content: 'const hello = "world";',
+    status: 'complete',
+    meta: { language: 'typescript' },
+    position: { start: 0, end: 0 },
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  }}
+  isStreaming={false}
+/>
+```
+
+## 相关文档
+
+- [Artifact 类型定义](../../lib/artifact/types.ts)
+- [Artifact 解析器](../../lib/artifact/parser.ts)
+- [Artifact 状态管理](../../lib/artifact/store.ts)
+
+
+## ArtifactRenderer
+
+Artifact 统一渲染入口组件，根据类型分发到对应的渲染器。
+
+**功能特性：**
+- 根据 Artifact 类型分发到对应的渲染器
+- Canvas 类型委托给 Canvas 系统处理
+- 错误边界捕获渲染错误，显示友好的错误信息
+- 支持流式状态指示器
+- 使用 React.Suspense 支持懒加载渲染器
+
+**使用示例：**
+```tsx
+import { ArtifactRenderer } from '@/components/artifact/ArtifactRenderer';
+
+<ArtifactRenderer
+  artifact={artifact}
+  isStreaming={false}
+  onContentChange={(content) => updateArtifact(artifact.id, { content })}
+/>
+```
+
+**Props：**
+| 属性 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| artifact | Artifact | 是 | 要渲染的 Artifact 对象 |
+| isStreaming | boolean | 否 | 是否处于流式生成状态 |
+| onContentChange | (content: string) => void | 否 | 内容变更回调 |
+| className | string | 否 | 自定义类名 |
+
+**类型分发逻辑：**
+1. 检查 ArtifactRegistry 是否有对应类型的渲染器
+2. 如果是 Canvas 类型（`canvas:*`），委托给 CanvasAdapter
+3. 如果有注册的渲染器，使用 Suspense 懒加载渲染
+4. 如果没有注册的渲染器，显示 FallbackRenderer
+
+**错误处理：**
+- 使用 ArtifactErrorBoundary 捕获渲染错误
+- 错误时显示友好的错误信息和重试按钮
+- 支持查看源码回退
+
+---
+
+## CanvasAdapter
+
+Canvas 适配器组件，将 Canvas 类型的 Artifact 适配到现有 Canvas 系统。
+
+**功能特性：**
+- 检测 Canvas 类型（canvas:document, canvas:poster, canvas:music, canvas:script, canvas:novel）
+- 将 Artifact 内容作为初始状态传递给 Canvas
+- 同步 Canvas 状态变更回 Artifact
+- 支持在完整 Canvas 编辑器模式中打开
+- 保留 Canvas 特定元数据（platform, version 等）
+
+**支持的 Canvas 类型：**
+| Artifact 类型 | Canvas 类型 | 说明 |
+|--------------|-------------|------|
+| canvas:document | document | 文档画布 |
+| canvas:poster | poster | 海报画布 |
+| canvas:music | music | 音乐画布 |
+| canvas:script | script | 剧本画布 |
+| canvas:novel | novel | 小说画布 |
+
+**使用示例：**
+```tsx
+import { CanvasAdapter } from '@/components/artifact/CanvasAdapter';
+
+<CanvasAdapter
+  artifact={{
+    id: '1',
+    type: 'canvas:document',
+    title: '我的文档',
+    content: '# Hello World',
+    status: 'complete',
+    meta: { platform: 'markdown' },
+    position: { start: 0, end: 0 },
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  }}
+  isStreaming={false}
+  onContentChange={(content) => console.log('内容变更:', content)}
+/>
+```
+
+**Props：**
+| 属性 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| artifact | Artifact | 是 | 要渲染的 Artifact 对象 |
+| isStreaming | boolean | 否 | 是否处于流式生成状态 |
+| onContentChange | (content: string) => void | 否 | 内容变更回调 |
+| className | string | 否 | 自定义类名 |
+
+**工具函数：**
+- `getCanvasTypeFromArtifact(type)`: 从 Artifact 类型获取 Canvas 类型
+- `isCanvasArtifact(type)`: 检测是否为 Canvas 类型的 Artifact
+- `createCanvasStateFromArtifact(artifact)`: 根据 Artifact 创建初始 Canvas 状态
+- `extractContentFromCanvasState(state)`: 从 Canvas 状态提取内容
+- `extractCanvasMetadata(state)`: 提取 Canvas 元数据
+
+---
+
+## ErrorFallbackRenderer
+
+错误回退渲染器，当 Artifact 渲染失败时显示友好的错误信息。
+
+**功能特性：**
+- 显示友好的错误信息（错误类型、错误消息）
+- 提供重试按钮，支持重新渲染
+- 错误时可以查看原始源码
+- 支持复制完整错误报告用于调试
+- 可折叠的错误堆栈和源码区域
+- 显示 Artifact 元信息（类型、标题、状态）
+
+**使用示例：**
+```tsx
+import { ErrorFallbackRenderer } from '@/components/artifact/ErrorFallbackRenderer';
+
+<ErrorFallbackRenderer
+  artifact={artifact}
+  error={new Error('渲染失败')}
+  onRetry={() => setRetryKey(k => k + 1)}
+  onShowSource={() => setShowSource(true)}
+/>
+```
+
+**Props：**
+| 属性 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| artifact | Artifact | 是 | 发生错误的 Artifact 对象 |
+| error | Error \| null | 否 | 错误对象 |
+| onRetry | () => void | 否 | 重试回调 |
+| onShowSource | () => void | 否 | 显示源码回调 |
+| className | string | 否 | 自定义类名 |
+
+**错误报告格式：**
+复制错误报告时，会生成包含以下信息的文本：
+- 时间戳
+- Artifact ID、类型、标题、状态
+- 错误类型和消息
+- 错误堆栈（如有）
+- Artifact 原始内容
+
+---
+
+## ArtifactList
+
+Artifact 列表组件，显示当前消息中的所有 artifacts，支持选择交互。
+
+**功能特性：**
+- 显示 artifact 列表，包含类型图标和标题
+- 支持选择交互，高亮选中项
+- 显示流式状态指示器（streaming 状态时显示加载动画）
+- 紧凑的垂直布局，适合侧边面板
+
+**使用示例：**
+```tsx
+import { ArtifactList } from '@/components/artifact/ArtifactList';
+
+<ArtifactList
+  artifacts={artifacts}
+  selectedId={selectedArtifact?.id}
+  onSelect={(id) => selectArtifact(id)}
+/>
+```
+
+**Props：**
+| 属性 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| artifacts | Artifact[] | 是 | Artifact 列表 |
+| selectedId | string \| null | 否 | 当前选中的 Artifact ID |
+| onSelect | (id: string) => void | 否 | 选择回调 |
+| className | string | 否 | 自定义类名 |
+
+
+## ArtifactToolbar
+
+Artifact 工具栏组件，提供快捷操作功能。
+
+**功能特性：**
+- 复制内容到剪贴板
+- 下载文件（根据类型自动选择扩展名）
+- 源码/预览视图切换
+- 在新窗口中打开
+- 关闭面板
+
+**使用示例：**
+```tsx
+import { ArtifactToolbar } from '@/components/artifact/ArtifactToolbar';
+
+<ArtifactToolbar
+  artifact={artifact}
+  showSource={false}
+  onToggleSource={() => setShowSource(!showSource)}
+  onClose={() => closePanel()}
+/>
+```
+
+**Props：**
+| 属性 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| artifact | Artifact | 是 | 要操作的 Artifact 对象 |
+| showSource | boolean | 否 | 当前是否显示源码视图 |
+| onToggleSource | () => void | 否 | 源码切换回调 |
+| onClose | () => void | 否 | 关闭回调 |
+
+---
+
+## ArtifactPanel
+
+Artifact 侧边面板组件，可调整大小的侧边面板，集成所有 Artifact 相关组件。
+
+**功能特性：**
+- 可调整大小的侧边面板（拖拽左边缘调整宽度）
+- 集成 ArtifactList、ArtifactToolbar、ArtifactRenderer
+- 键盘导航：上下键选择 artifact
+- 快捷键：Escape 关闭面板
+- 支持展开/折叠
+- 宽度持久化（使用 Jotai atomWithStorage）
+
+**使用示例：**
+```tsx
+import { ArtifactPanel } from '@/components/artifact/ArtifactPanel';
+
+// 基本用法
+<ArtifactPanel onClose={() => setPanelOpen(false)} />
+
+// 配合状态管理
+import { useAtom } from 'jotai';
+import { artifactPanelStateAtom } from '@/lib/artifact/store';
+
+function App() {
+  const [panelState, setPanelState] = useAtom(artifactPanelStateAtom);
+
+  return (
+    <div className="flex h-screen">
+      <main className="flex-1">
+        {/* 主内容区域 */}
+      </main>
+      {panelState.isOpen && (
+        <ArtifactPanel
+          onClose={() => setPanelState(s => ({ ...s, isOpen: false }))}
+        />
+      )}
+    </div>
+  );
+}
+```
+
+**Props：**
+| 属性 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| onClose | () => void | 否 | 关闭面板回调 |
+| className | string | 否 | 自定义类名 |
+
+**键盘快捷键：**
+| 快捷键 | 功能 |
+|--------|------|
+| ↑ / ↓ | 在 artifact 列表中上下选择 |
+| Escape | 关闭面板 |
+
+**面板尺寸：**
+- 最小宽度：320px
+- 最大宽度：800px
+- 默认宽度：480px
+- 折叠宽度：48px
+
+**状态持久化：**
+面板宽度通过 `artifactPanelStateAtom` 持久化到 sessionStorage，包含：
+- `isOpen`: 面板是否打开
+- `width`: 面板宽度（像素）

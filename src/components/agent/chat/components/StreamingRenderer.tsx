@@ -77,6 +77,10 @@ interface StreamingTextProps {
   charInterval?: number;
   /** A2UI 表单提交回调 */
   onA2UISubmit?: (formData: A2UIFormData) => void;
+  /** 是否折叠代码块 */
+  collapseCodeBlocks?: boolean;
+  /** 代码块点击回调 */
+  onCodeBlockClick?: (language: string, code: string) => void;
 }
 
 /**
@@ -92,6 +96,8 @@ const StreamingText: React.FC<StreamingTextProps> = memo(
     showCursor = true,
     charInterval = 12,
     onA2UISubmit,
+    collapseCodeBlocks,
+    onCodeBlockClick,
   }) => {
     const [displayText, setDisplayText] = useState("");
     const displayIndexRef = useRef(0);
@@ -195,7 +201,12 @@ const StreamingText: React.FC<StreamingTextProps> = memo(
       // 如果没有 a2ui 内容，直接使用 MarkdownRenderer
       if (!parsedContent.hasA2UI && !parsedContent.hasPending) {
         return (
-          <MarkdownRenderer content={displayText} onA2UISubmit={onA2UISubmit} />
+          <MarkdownRenderer
+            content={displayText}
+            onA2UISubmit={onA2UISubmit}
+            collapseCodeBlocks={collapseCodeBlocks}
+            onCodeBlockClick={onCodeBlockClick}
+          />
         );
       }
 
@@ -243,6 +254,8 @@ const StreamingText: React.FC<StreamingTextProps> = memo(
                     key={`text-${index}`}
                     content={textContent}
                     onA2UISubmit={onA2UISubmit}
+                    collapseCodeBlocks={collapseCodeBlocks}
+                    onCodeBlockClick={onCodeBlockClick}
                   />
                 );
               }
@@ -323,6 +336,10 @@ interface StreamingRendererProps {
   onFileClick?: (fileName: string, content: string) => void;
   /** 权限确认响应回调 */
   onPermissionResponse?: (response: ConfirmResponse) => void;
+  /** 是否折叠代码块（当画布打开时） */
+  collapseCodeBlocks?: boolean;
+  /** 代码块点击回调（用于在画布中显示） */
+  onCodeBlockClick?: (language: string, code: string) => void;
 }
 
 /**
@@ -348,6 +365,8 @@ export const StreamingRenderer: React.FC<StreamingRendererProps> = memo(
     onWriteFile,
     onFileClick,
     onPermissionResponse,
+    collapseCodeBlocks,
+    onCodeBlockClick,
   }) => {
     // 判断是否使用交错显示模式
     const useInterleavedMode = contentParts && contentParts.length > 0;
@@ -519,6 +538,8 @@ export const StreamingRenderer: React.FC<StreamingRendererProps> = memo(
                               pIndex === partParsed.parts.length - 1
                             }
                             onA2UISubmit={onA2UISubmit}
+                            collapseCodeBlocks={collapseCodeBlocks}
+                            onCodeBlockClick={onCodeBlockClick}
                           />
                         );
                       }
@@ -536,6 +557,8 @@ export const StreamingRenderer: React.FC<StreamingRendererProps> = memo(
                   isStreaming={isStreaming && isLastPart}
                   showCursor={shouldShowCursor && isLastPart}
                   onA2UISubmit={onA2UISubmit}
+                  collapseCodeBlocks={collapseCodeBlocks}
+                  onCodeBlockClick={onCodeBlockClick}
                 />
               );
             } else if (part.type === "thinking") {
@@ -663,6 +686,8 @@ export const StreamingRenderer: React.FC<StreamingRendererProps> = memo(
                   shouldShowCursor && index === parsedContent.parts.length - 1
                 }
                 onA2UISubmit={onA2UISubmit}
+                collapseCodeBlocks={collapseCodeBlocks}
+                onCodeBlockClick={onCodeBlockClick}
               />
             );
           }

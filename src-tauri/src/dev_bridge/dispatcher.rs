@@ -209,6 +209,7 @@ pub async fn handle_command(
                     model: model_name.clone(),
                     messages: Vec::new(),
                     system_prompt,
+                    title: None, // 初始会话没有标题，后续会自动生成
                     created_at: now.clone(),
                     updated_at: now,
                 };

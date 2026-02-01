@@ -24,15 +24,16 @@ import {
   Activity,
   Terminal,
   Image,
+  FolderKanban,
   LucideIcon,
 } from "lucide-react";
 import * as LucideIcons from "lucide-react";
 import { getPluginsForSurface, PluginUIInfo } from "@/lib/api/pluginUI";
-import { Page } from "@/types/page";
+import { Page, PageParams } from "@/types/page";
 
 interface AppSidebarProps {
   currentPage: Page;
-  onNavigate: (page: Page) => void;
+  onNavigate: (page: Page, params?: PageParams) => void;
 }
 
 const Container = styled.div`
@@ -122,6 +123,7 @@ const IconButton = styled.button<{ $active?: boolean }>`
 
 const mainMenuItems: { id: Page; label: string; icon: typeof Bot }[] = [
   { id: "agent", label: "AI Agent", icon: Bot },
+  { id: "projects", label: "项目", icon: FolderKanban },
   { id: "image-gen", label: "图片生成", icon: Image },
   { id: "api-server", label: "API Server", icon: Globe },
   { id: "provider-pool", label: "凭证池", icon: Database },

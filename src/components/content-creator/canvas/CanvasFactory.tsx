@@ -12,6 +12,10 @@ import { PosterCanvas } from "./poster";
 import type { PosterCanvasState } from "./poster/types";
 import { MusicCanvas } from "./music";
 import type { MusicCanvasState } from "./music/types";
+import { ScriptCanvas } from "./script";
+import type { ScriptCanvasState } from "./script/types";
+import { NovelCanvas } from "./novel";
+import type { NovelCanvasState } from "./novel/types";
 import { getCanvasTypeForTheme, type CanvasStateUnion } from "./canvasUtils";
 
 /**
@@ -78,6 +82,26 @@ export const CanvasFactory: React.FC<CanvasFactoryProps> = memo(
           onStateChange={onStateChange as (s: MusicCanvasState) => void}
           onClose={onClose}
           isStreaming={isStreaming}
+        />
+      );
+    }
+
+    if (canvasType === "script" && state.type === "script") {
+      return (
+        <ScriptCanvas
+          state={state}
+          onStateChange={onStateChange as (s: ScriptCanvasState) => void}
+          onClose={onClose}
+        />
+      );
+    }
+
+    if (canvasType === "novel" && state.type === "novel") {
+      return (
+        <NovelCanvas
+          state={state}
+          onStateChange={onStateChange as (s: NovelCanvasState) => void}
+          onClose={onClose}
         />
       );
     }

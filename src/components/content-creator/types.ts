@@ -7,31 +7,27 @@
 import type React from "react";
 
 /**
- * 主题类型
+ * 主题类型（与 ProjectType 中的 UserType 保持一致）
  * - general: 通用对话
- * - knowledge: 知识探索
- * - planning: 计划规划
  * - social-media: 社媒内容
  * - poster: 图文海报
+ * - music: 歌词曲谱
+ * - knowledge: 知识探索
+ * - planning: 计划规划
  * - document: 办公文档
- * - paper: 学术论文
- * - novel: 小说创作
- * - script: 短剧脚本
- * - music: 音乐创作
  * - video: 短视频
+ * - novel: 小说创作
  */
 export type ThemeType =
   | "general"
-  | "knowledge"
-  | "planning"
   | "social-media"
   | "poster"
-  | "document"
-  | "paper"
-  | "novel"
-  | "script"
   | "music"
-  | "video";
+  | "knowledge"
+  | "planning"
+  | "document"
+  | "video"
+  | "novel";
 
 /**
  * 创作模式类型

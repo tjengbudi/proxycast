@@ -8,4 +8,8 @@ import "./lib/tauri-mock/index";
 // Initialize i18n configuration
 import "./i18n/config";
 
+// 注册 Artifact 轻量渲染器
+import { registerLightweightRenderers } from "./components/artifact";
+registerLightweightRenderers();
+
 ReactDOM.createRoot(document.getElementById("root")!).render(<RootRouter />);

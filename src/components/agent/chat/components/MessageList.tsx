@@ -34,6 +34,10 @@ interface MessageListProps {
   onFileClick?: (fileName: string, content: string) => void;
   /** 权限确认响应回调 */
   onPermissionResponse?: (response: ConfirmResponse) => void;
+  /** 是否折叠代码块（当画布打开时） */
+  collapseCodeBlocks?: boolean;
+  /** 代码块点击回调（用于在画布中显示） */
+  onCodeBlockClick?: (language: string, code: string) => void;
 }
 
 export const MessageList: React.FC<MessageListProps> = ({
@@ -44,6 +48,8 @@ export const MessageList: React.FC<MessageListProps> = ({
   onWriteFile,
   onFileClick,
   onPermissionResponse,
+  collapseCodeBlocks,
+  onCodeBlockClick,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -216,6 +222,8 @@ export const MessageList: React.FC<MessageListProps> = ({
                     onWriteFile={onWriteFile}
                     onFileClick={onFileClick}
                     onPermissionResponse={onPermissionResponse}
+                    collapseCodeBlocks={collapseCodeBlocks}
+                    onCodeBlockClick={onCodeBlockClick}
                   />
                 ) : (
                   <MarkdownRenderer

@@ -6,6 +6,7 @@ use super::types::{Workspace, WorkspaceId, WorkspaceSettings, WorkspaceType, Wor
 use crate::database::DbConnection;
 use chrono::Utc;
 use rusqlite::params;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use uuid::Uuid;
 
@@ -37,6 +38,24 @@ impl WorkspaceManager {
         let id = Uuid::new_v4().to_string();
         let root_path_str = root_path.to_str().ok_or("无效的路径")?.to_string();
 
+        // 根据项目类型设置默认图标
+        let icon = if workspace_type.is_project_type() {
+            Some(match &workspace_type {
+                WorkspaceType::General => "💬".to_string(),
+                WorkspaceType::SocialMedia => "📱".to_string(),
+                WorkspaceType::Poster => "🖼️".to_string(),
+                WorkspaceType::Music => "🎵".to_string(),
+                WorkspaceType::Knowledge => "🔍".to_string(),
+                WorkspaceType::Planning => "📅".to_string(),
+                WorkspaceType::Document => "📄".to_string(),
+                WorkspaceType::Video => "🎬".to_string(),
+                WorkspaceType::Novel => "📖".to_string(),
+                _ => "📁".to_string(),
+            })
+        } else {
+            None
+        };
+
         let workspace = Workspace {
             id: id.clone(),
             name,
@@ -46,12 +65,20 @@ impl WorkspaceManager {
             created_at: now,
             updated_at: now,
             settings: WorkspaceSettings::default(),
+            icon,
+            color: None,
+            is_favorite: false,
+            is_archived: false,
+            tags: Vec::new(),
+            stats: None,
         };
 
         let conn = self
             .db
             .lock()
             .map_err(|e| format!("数据库锁定失败: {}", e))?;
+
+        Self::ensure_workspace_columns(&conn)?;
 
         // 检查路径是否已存在
         let exists: bool = conn
@@ -68,10 +95,11 @@ impl WorkspaceManager {
 
         let settings_json =
             serde_json::to_string(&workspace.settings).map_err(|e| e.to_string())?;
+        let tags_json = serde_json::to_string(&workspace.tags).map_err(|e| e.to_string())?;
 
         conn.execute(
-            "INSERT INTO workspaces (id, name, workspace_type, root_path, is_default, settings_json, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO workspaces (id, name, workspace_type, root_path, is_default, settings_json, icon, color, is_favorite, is_archived, tags_json, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 &workspace.id,
                 &workspace.name,
@@ -79,6 +107,11 @@ impl WorkspaceManager {
                 &root_path_str,
                 workspace.is_default,
                 &settings_json,
+                &workspace.icon,
+                &workspace.color,
+                workspace.is_favorite,
+                workspace.is_archived,
+                &tags_json,
                 workspace.created_at.timestamp_millis(),
                 workspace.updated_at.timestamp_millis(),
             ],
@@ -95,6 +128,46 @@ impl WorkspaceManager {
         Ok(workspace)
     }
 
+    /// 确保 workspaces 表包含项目管理相关字段
+    fn ensure_workspace_columns(conn: &rusqlite::Connection) -> Result<(), String> {
+        let mut stmt = conn
+            .prepare("PRAGMA table_info(workspaces)")
+            .map_err(|e| format!("读取 workspaces 表结构失败: {}", e))?;
+
+        let columns = stmt
+            .query_map([], |row| {
+                let column_name: String = row.get(1)?;
+                Ok(column_name)
+            })
+            .map_err(|e| format!("读取 workspaces 表结构失败: {}", e))?
+            .collect::<Result<HashSet<_>, _>>()
+            .map_err(|e| format!("解析 workspaces 表结构失败: {}", e))?;
+
+        let add_column = |sql: &str| -> Result<(), String> {
+            conn.execute(sql, [])
+                .map_err(|e| format!("更新 workspaces 表结构失败: {}", e))?;
+            Ok(())
+        };
+
+        if !columns.contains("icon") {
+            add_column("ALTER TABLE workspaces ADD COLUMN icon TEXT")?;
+        }
+        if !columns.contains("color") {
+            add_column("ALTER TABLE workspaces ADD COLUMN color TEXT")?;
+        }
+        if !columns.contains("is_favorite") {
+            add_column("ALTER TABLE workspaces ADD COLUMN is_favorite INTEGER DEFAULT 0")?;
+        }
+        if !columns.contains("is_archived") {
+            add_column("ALTER TABLE workspaces ADD COLUMN is_archived INTEGER DEFAULT 0")?;
+        }
+        if !columns.contains("tags_json") {
+            add_column("ALTER TABLE workspaces ADD COLUMN tags_json TEXT DEFAULT '[]'")?;
+        }
+
+        Ok(())
+    }
+
     /// 获取 workspace
     pub fn get(&self, id: &WorkspaceId) -> Result<Option<Workspace>, String> {
         let conn = self
@@ -103,7 +176,7 @@ impl WorkspaceManager {
             .map_err(|e| format!("数据库锁定失败: {}", e))?;
 
         let result = conn.query_row(
-            "SELECT id, name, workspace_type, root_path, is_default, settings_json, created_at, updated_at
+            "SELECT id, name, workspace_type, root_path, is_default, settings_json, created_at, updated_at, icon, color, is_favorite, is_archived, tags_json
              FROM workspaces WHERE id = ?",
             params![id],
             |row| {
@@ -128,7 +201,7 @@ impl WorkspaceManager {
             .map_err(|e| format!("数据库锁定失败: {}", e))?;
 
         let result = conn.query_row(
-            "SELECT id, name, workspace_type, root_path, is_default, settings_json, created_at, updated_at
+            "SELECT id, name, workspace_type, root_path, is_default, settings_json, created_at, updated_at, icon, color, is_favorite, is_archived, tags_json
              FROM workspaces WHERE root_path = ?",
             params![root_path_str],
             |row| {
@@ -152,8 +225,110 @@ impl WorkspaceManager {
 
         let mut stmt = conn
             .prepare(
-                "SELECT id, name, workspace_type, root_path, is_default, settings_json, created_at, updated_at
+                "SELECT id, name, workspace_type, root_path, is_default, settings_json, created_at, updated_at, icon, color, is_favorite, is_archived, tags_json
                  FROM workspaces ORDER BY updated_at DESC",
+            )
+            .map_err(|e| format!("准备查询失败: {}", e))?;
+
+        let workspaces = stmt
+            .query_map([], |row| Ok(Self::row_to_workspace(row)?))
+            .map_err(|e| format!("查询失败: {}", e))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("解析结果失败: {}", e))?;
+
+        Ok(workspaces)
+    }
+
+    /// 列出所有项目类型的 workspace
+    pub fn list_projects(&self) -> Result<Vec<Workspace>, String> {
+        let conn = self
+            .db
+            .lock()
+            .map_err(|e| format!("数据库锁定失败: {}", e))?;
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, name, workspace_type, root_path, is_default, settings_json, created_at, updated_at, icon, color, is_favorite, is_archived, tags_json
+                 FROM workspaces
+                 WHERE workspace_type IN ('drama', 'novel', 'social', 'document', 'general')
+                 ORDER BY updated_at DESC",
+            )
+            .map_err(|e| format!("准备查询失败: {}", e))?;
+
+        let workspaces = stmt
+            .query_map([], |row| Ok(Self::row_to_workspace(row)?))
+            .map_err(|e| format!("查询失败: {}", e))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("解析结果失败: {}", e))?;
+
+        Ok(workspaces)
+    }
+
+    /// 列出指定类型的项目
+    pub fn list_by_type(&self, workspace_type: &WorkspaceType) -> Result<Vec<Workspace>, String> {
+        let conn = self
+            .db
+            .lock()
+            .map_err(|e| format!("数据库锁定失败: {}", e))?;
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, name, workspace_type, root_path, is_default, settings_json, created_at, updated_at, icon, color, is_favorite, is_archived, tags_json
+                 FROM workspaces
+                 WHERE workspace_type = ?
+                 ORDER BY updated_at DESC",
+            )
+            .map_err(|e| format!("准备查询失败: {}", e))?;
+
+        let workspaces = stmt
+            .query_map(params![workspace_type.as_str()], |row| {
+                Ok(Self::row_to_workspace(row)?)
+            })
+            .map_err(|e| format!("查询失败: {}", e))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("解析结果失败: {}", e))?;
+
+        Ok(workspaces)
+    }
+
+    /// 列出收藏的项目
+    pub fn list_favorites(&self) -> Result<Vec<Workspace>, String> {
+        let conn = self
+            .db
+            .lock()
+            .map_err(|e| format!("数据库锁定失败: {}", e))?;
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, name, workspace_type, root_path, is_default, settings_json, created_at, updated_at, icon, color, is_favorite, is_archived, tags_json
+                 FROM workspaces
+                 WHERE is_favorite = 1 AND is_archived = 0
+                 ORDER BY updated_at DESC",
+            )
+            .map_err(|e| format!("准备查询失败: {}", e))?;
+
+        let workspaces = stmt
+            .query_map([], |row| Ok(Self::row_to_workspace(row)?))
+            .map_err(|e| format!("查询失败: {}", e))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("解析结果失败: {}", e))?;
+
+        Ok(workspaces)
+    }
+
+    /// 列出归档的项目
+    pub fn list_archived(&self) -> Result<Vec<Workspace>, String> {
+        let conn = self
+            .db
+            .lock()
+            .map_err(|e| format!("数据库锁定失败: {}", e))?;
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, name, workspace_type, root_path, is_default, settings_json, created_at, updated_at, icon, color, is_favorite, is_archived, tags_json
+                 FROM workspaces
+                 WHERE is_archived = 1
+                 ORDER BY updated_at DESC",
             )
             .map_err(|e| format!("准备查询失败: {}", e))?;
 
@@ -187,6 +362,32 @@ impl WorkspaceManager {
             let settings_json = serde_json::to_string(settings).map_err(|e| e.to_string())?;
             set_clauses.push("settings_json = ?");
             params_vec.push(Box::new(settings_json));
+        }
+
+        if let Some(ref icon) = updates.icon {
+            set_clauses.push("icon = ?");
+            params_vec.push(Box::new(icon.clone()));
+        }
+
+        if let Some(ref color) = updates.color {
+            set_clauses.push("color = ?");
+            params_vec.push(Box::new(color.clone()));
+        }
+
+        if let Some(is_favorite) = updates.is_favorite {
+            set_clauses.push("is_favorite = ?");
+            params_vec.push(Box::new(is_favorite));
+        }
+
+        if let Some(is_archived) = updates.is_archived {
+            set_clauses.push("is_archived = ?");
+            params_vec.push(Box::new(is_archived));
+        }
+
+        if let Some(ref tags) = updates.tags {
+            let tags_json = serde_json::to_string(tags).map_err(|e| e.to_string())?;
+            set_clauses.push("tags_json = ?");
+            params_vec.push(Box::new(tags_json));
         }
 
         params_vec.push(Box::new(id.clone()));
@@ -260,7 +461,7 @@ impl WorkspaceManager {
             .map_err(|e| format!("数据库锁定失败: {}", e))?;
 
         let result = conn.query_row(
-            "SELECT id, name, workspace_type, root_path, is_default, settings_json, created_at, updated_at
+            "SELECT id, name, workspace_type, root_path, is_default, settings_json, created_at, updated_at, icon, color, is_favorite, is_archived, tags_json
              FROM workspaces WHERE is_default = 1",
             [],
             |row| {
@@ -285,8 +486,16 @@ impl WorkspaceManager {
         let settings_json: String = row.get(5)?;
         let created_at_ms: i64 = row.get(6)?;
         let updated_at_ms: i64 = row.get(7)?;
+        let icon: Option<String> = row.get(8)?;
+        let color: Option<String> = row.get(9)?;
+        let is_favorite: bool = row.get::<_, Option<bool>>(10)?.unwrap_or(false);
+        let is_archived: bool = row.get::<_, Option<bool>>(11)?.unwrap_or(false);
+        let tags_json: Option<String> = row.get(12)?;
 
         let settings: WorkspaceSettings = serde_json::from_str(&settings_json).unwrap_or_default();
+        let tags: Vec<String> = tags_json
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
 
         Ok(Workspace {
             id,
@@ -299,6 +508,12 @@ impl WorkspaceManager {
             updated_at: chrono::DateTime::from_timestamp_millis(updated_at_ms)
                 .unwrap_or_else(Utc::now),
             settings,
+            icon,
+            color,
+            is_favorite,
+            is_archived,
+            tags,
+            stats: None, // 统计信息需要单独查询
         })
     }
 }

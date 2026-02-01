@@ -11,6 +11,7 @@ import { Copy, Check, Loader2 } from "lucide-react";
 import { parseA2UIJson } from "@/components/content-creator/a2ui/parser";
 import { A2UIRenderer } from "@/components/content-creator/a2ui/components";
 import type { A2UIFormData } from "@/components/content-creator/a2ui/types";
+import { ArtifactPlaceholder } from "./ArtifactPlaceholder";
 
 // Custom styles for markdown content to match Cherry Studio
 const MarkdownContainer = styled.div`
@@ -261,10 +262,14 @@ interface MarkdownRendererProps {
   content: string;
   /** A2UI 表单提交回调 */
   onA2UISubmit?: (formData: A2UIFormData) => void;
+  /** 是否折叠代码块（当画布打开时） */
+  collapseCodeBlocks?: boolean;
+  /** 代码块点击回调（用于在画布中显示） */
+  onCodeBlockClick?: (language: string, code: string) => void;
 }
 
 export const MarkdownRenderer: React.FC<MarkdownRendererProps> = memo(
-  ({ content, onA2UISubmit }) => {
+  ({ content, onA2UISubmit, collapseCodeBlocks = false, onCodeBlockClick }) => {
     const [copied, setCopied] = React.useState<string | null>(null);
 
     const handleCopy = (code: string) => {
@@ -468,7 +473,19 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = memo(
                   return null;
                 }
 
-                // Block code
+                // 如果启用了代码块折叠，显示占位符卡片
+                if (collapseCodeBlocks) {
+                  const lineCount = codeContent.split("\n").length;
+                  return (
+                    <ArtifactPlaceholder
+                      language={language}
+                      lineCount={lineCount}
+                      onClick={() => onCodeBlockClick?.(language, codeContent)}
+                    />
+                  );
+                }
+
+                // Block code - 完整显示
                 const isCopied = copied === codeContent;
 
                 return (

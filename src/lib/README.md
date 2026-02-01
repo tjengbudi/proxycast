@@ -9,6 +9,8 @@
 
 ## 文件索引
 
+- `artifact/` - Artifact 系统核心库（Requirements 1.1-1.5）
+  - `types.ts` - Artifact 类型定义
 - `api/` - API 调用封装
   - `apiKeyProvider.ts` - API Key Provider API 封装（Requirements 9.1）
   - `pluginUI.ts` - 插件 UI API（Requirements 3.1）

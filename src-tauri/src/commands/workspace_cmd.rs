@@ -36,6 +36,11 @@ pub struct WorkspaceListItem {
     pub is_default: bool,
     pub created_at: i64,
     pub updated_at: i64,
+    pub icon: Option<String>,
+    pub color: Option<String>,
+    pub is_favorite: bool,
+    pub is_archived: bool,
+    pub tags: Vec<String>,
 }
 
 impl From<Workspace> for WorkspaceListItem {
@@ -48,6 +53,11 @@ impl From<Workspace> for WorkspaceListItem {
             is_default: ws.is_default,
             created_at: ws.created_at.timestamp_millis(),
             updated_at: ws.updated_at.timestamp_millis(),
+            icon: ws.icon,
+            color: ws.color,
+            is_favorite: ws.is_favorite,
+            is_archived: ws.is_archived,
+            tags: ws.tags,
         }
     }
 }
@@ -70,6 +80,16 @@ pub struct UpdateWorkspaceRequest {
     pub name: Option<String>,
     #[serde(default)]
     pub settings: Option<WorkspaceSettings>,
+    #[serde(default)]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub is_favorite: Option<bool>,
+    #[serde(default)]
+    pub is_archived: Option<bool>,
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
 }
 
 // ==================== Tauri 命令 ====================
@@ -127,6 +147,11 @@ pub async fn workspace_update(
     let updates = WorkspaceUpdate {
         name: request.name,
         settings: request.settings,
+        icon: request.icon,
+        color: request.color,
+        is_favorite: request.is_favorite,
+        is_archived: request.is_archived,
+        tags: request.tags,
     };
 
     let workspace = manager.update(&id, updates)?;
@@ -135,8 +160,24 @@ pub async fn workspace_update(
 
 /// 删除 workspace
 #[tauri::command]
-pub async fn workspace_delete(db: State<'_, DbConnection>, id: String) -> Result<bool, String> {
+pub async fn workspace_delete(
+    db: State<'_, DbConnection>,
+    id: String,
+    delete_directory: Option<bool>,
+) -> Result<bool, String> {
     let manager = WorkspaceManager::new(db.inner().clone());
+
+    // 如果需要删除目录，先获取 workspace 信息
+    if delete_directory.unwrap_or(false) {
+        if let Some(workspace) = manager.get(&id)? {
+            let root_path = workspace.root_path;
+            if root_path.exists() && root_path.is_dir() {
+                std::fs::remove_dir_all(&root_path).map_err(|e| format!("删除目录失败: {}", e))?;
+                tracing::info!("[Workspace] 删除目录: {:?}", root_path);
+            }
+        }
+    }
+
     manager.delete(&id)
 }
 

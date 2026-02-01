@@ -7,20 +7,18 @@
 import type { ThemeType, CreationMode } from "../types";
 
 /**
- * 主题名称映射
+ * 主题名称映射（与 ProjectType 统一）
  */
 const THEME_NAMES: Record<ThemeType, string> = {
   general: "通用对话",
-  knowledge: "知识探索",
-  planning: "计划规划",
   "social-media": "社媒内容",
   poster: "图文海报",
+  music: "歌词曲谱",
+  knowledge: "知识探索",
+  planning: "计划规划",
   document: "办公文档",
-  paper: "学术论文",
-  novel: "小说创作",
-  script: "短剧脚本",
-  music: "音乐创作",
   video: "短视频",
+  novel: "小说创作",
 };
 
 /**
@@ -28,17 +26,6 @@ const THEME_NAMES: Record<ThemeType, string> = {
  */
 const THEME_GUIDANCE: Record<ThemeType, string> = {
   general: "",
-  knowledge: `
-【知识探索特点】
-- 深入浅出地解释概念，使用类比和例子
-- 提供可靠的信息来源，标注不确定的内容
-- 鼓励用户提问，引导深度思考`,
-
-  planning: `
-【计划规划特点】
-- 制定清晰的目标和里程碑
-- 考虑时间和资源约束
-- 提供可执行的行动步骤`,
 
   "social-media": `
 【社媒内容特点】
@@ -51,47 +38,51 @@ const THEME_GUIDANCE: Record<ThemeType, string> = {
 - 文案简洁有力，突出核心卖点
 - 考虑视觉层次，主次分明`,
 
-  document: `
-【办公文档特点】
-- 结构清晰，逻辑严谨
-- 使用专业术语但保持可读性`,
-
-  paper: `
-【学术论文特点】
-- 严格遵循学术规范和引用格式
-- 论证逻辑严密，数据支撑充分
-- 使用专业术语，保持客观中立`,
-
-  novel: `
-【小说创作特点】
-- 注重人物塑造和情节发展
-- 场景描写生动，对话自然
-- 保持叙事节奏和悬念设置`,
-
-  script: `
-【短剧脚本特点】
-- 场景描述简洁明了
-- 对白自然，符合人物性格
-- 注重镜头语言和节奏把控`,
-
-  video: `
-【短视频特点】
-- 开头3秒抓注意力
-- 1分钟≈150-180字`,
-
   music: `
 【音乐创作特点】
 - 歌词创作：注重押韵、意象、情感表达
 - 段落结构：主歌、副歌、桥段等标准结构
 - 平台适配：支持 Suno、Tunee 等 AI 音乐平台格式
 - 三种创作模式：教练模式（引导创作）、快速模式（AI生成）、混合模式（协作创作）`,
+
+  knowledge: `
+【知识探索特点】
+- 深入浅出地解释概念，使用类比和例子
+- 提供可靠的信息来源，标注不确定的内容
+- 鼓励用户提问，引导深度思考`,
+
+  planning: `
+【计划规划特点】
+- 制定清晰的目标和里程碑
+- 考虑时间和资源约束
+- 提供可执行的行动步骤`,
+
+  document: `
+【办公文档特点】
+- 结构清晰，逻辑严谨
+- 使用专业术语但保持可读性`,
+
+  video: `
+【短视频特点】
+- 开头3秒抓注意力
+- 1分钟≈150-180字
+- 场景描述简洁明了
+- 对白自然，符合人物性格
+- 注重镜头语言和节奏把控`,
+
+  novel: `
+【小说创作特点】
+- 注重人物塑造和情节发展
+- 场景描写生动，对话自然
+- 保持叙事节奏和悬念设置`,
 };
 
 /**
  * 生成文件写入格式说明
+ * 根据主题类型返回对应的文件体系
  */
-function getFileWritingInstructions(): string {
-  return `
+function getFileWritingInstructions(theme?: ThemeType): string {
+  const baseInstructions = `
 ## 文件写入格式
 
 当需要输出文档内容时，使用以下标签格式：
@@ -104,7 +95,92 @@ function getFileWritingInstructions(): string {
 - 这是标签格式，不是工具调用！直接写在回复文本中
 - <write_file> 标签内的内容会实时流式显示在右侧画布
 - 写入完成后，在对话框中简短说明即可
+`;
 
+  // 根据主题类型返回对应的文件体系
+  let fileSystem = "";
+
+  switch (theme) {
+    case "social-media":
+      fileSystem = `
+## 工作流文件体系 ⭐ 核心
+
+**每个步骤生成独立文件，绝不覆盖！**
+
+| 步骤 | 文件名 | 内容说明 |
+|------|--------|----------|
+| 1. 明确需求 | brief.md | 用户需求摘要、目标平台、受众定位 |
+| 2. 创作内容 | draft.md | 社媒内容初稿 |
+| 3. 润色优化 | article.md | 优化后的内容（引导模式） |
+| 4. 平台适配 | adapted.md | 适配不同平台格式（引导模式） |
+`;
+      break;
+
+    case "video":
+      fileSystem = `
+## 工作流文件体系 ⭐ 核心
+
+**每个步骤生成独立文件，绝不覆盖！**
+
+| 步骤 | 文件名 | 内容说明 |
+|------|--------|----------|
+| 1. 明确需求 | brief.md | 视频主题、时长、目标受众 |
+| 2. 剧情大纲 | outline.md | 视频整体结构和节奏规划 |
+| 3. 分镜设计 | storyboard.md | 关键画面和镜头设计 |
+| 4. 撰写剧本 | script.md | 完整视频脚本 |
+| 5. 润色优化 | script-final.md | 优化后的最终脚本 |
+`;
+      break;
+
+    case "novel":
+      fileSystem = `
+## 工作流文件体系 ⭐ 核心
+
+**每个步骤生成独立文件，绝不覆盖！**
+
+| 步骤 | 文件名 | 内容说明 |
+|------|--------|----------|
+| 1. 明确需求 | brief.md | 故事主题、类型、目标读者 |
+| 2. 章节大纲 | outline.md | 故事结构和章节规划 |
+| 3. 角色设定 | characters.md | 主要角色和背景设定 |
+| 4. 撰写内容 | chapter.md | 小说章节内容 |
+| 5. 润色优化 | chapter-final.md | 优化后的章节内容 |
+`;
+      break;
+
+    case "document":
+      fileSystem = `
+## 工作流文件体系 ⭐ 核心
+
+**每个步骤生成独立文件，绝不覆盖！**
+
+| 步骤 | 文件名 | 内容说明 |
+|------|--------|----------|
+| 1. 明确需求 | brief.md | 文档主题、类型、目标读者 |
+| 2. 文档大纲 | outline.md | 文档结构和章节规划 |
+| 3. 撰写内容 | draft.md | 文档初稿 |
+| 4. 润色优化 | article.md | 优化后的最终文档 |
+`;
+      break;
+
+    case "poster":
+      fileSystem = `
+## 工作流文件体系 ⭐ 核心
+
+**每个步骤生成独立文件，绝不覆盖！**
+
+| 步骤 | 文件名 | 内容说明 |
+|------|--------|----------|
+| 1. 需求分析 | brief.md | 海报目的、受众、使用场景 |
+| 2. 文案策划 | copywriting.md | 海报标题和文案内容 |
+| 3. 布局设计 | layout.md | 视觉层次和元素布局规划 |
+| 4. 视觉设计 | design.md | 完整海报设计方案 |
+`;
+      break;
+
+    default:
+      // 通用文件体系（用于未指定主题的情况）
+      fileSystem = `
 ## 工作流文件体系 ⭐ 核心
 
 **每个步骤生成独立文件，绝不覆盖！**
@@ -118,6 +194,10 @@ function getFileWritingInstructions(): string {
 | 5. 初稿 | draft.md | 第一版完整文章 |
 | 6. 终稿 | article.md | 润色后的最终文章 |
 `;
+      break;
+  }
+
+  return baseInstructions + fileSystem;
 }
 
 /**
@@ -155,6 +235,7 @@ function getFormInstructions(): string {
 function generateGuidedModePrompt(
   themeName: string,
   themeGuidance: string,
+  theme?: ThemeType,
 ): string {
   return `# 🛑 强制规则 - 必须遵守
 
@@ -196,7 +277,7 @@ function generateGuidedModePrompt(
 - ❌ "润色"或"改写"用户的文字
 - ❌ 说"我来帮你写"、"你可以这样写"
 
-${getFileWritingInstructions()}
+${getFileWritingInstructions(theme)}
 
 ${getFormInstructions()}
 
@@ -504,6 +585,7 @@ ${themeGuidance}
 function generateFastModePrompt(
   themeName: string,
   themeGuidance: string,
+  theme?: ThemeType,
 ): string {
   return `# 🛑 强制规则 - 必须遵守
 
@@ -529,7 +611,7 @@ function generateFastModePrompt(
 
 **但是**：你必须先收集需求，不能直接生成内容！
 
-${getFileWritingInstructions()}
+${getFileWritingInstructions(theme)}
 
 ${getFormInstructions()}
 
@@ -666,6 +748,7 @@ ${themeGuidance}
 function generateHybridModePrompt(
   themeName: string,
   themeGuidance: string,
+  theme?: ThemeType,
 ): string {
   return `# 🛑 强制规则 - 必须遵守
 
@@ -691,7 +774,7 @@ function generateHybridModePrompt(
 - **AI 负责（40%）**：文章框架、过渡段落、数据总结、背景介绍
 - **用户负责（60%）**：核心观点、个人经验、关键案例、独特洞察
 
-${getFileWritingInstructions()}
+${getFileWritingInstructions(theme)}
 
 ${getFormInstructions()}
 
@@ -832,6 +915,7 @@ ${themeGuidance}
 function generateFrameworkModePrompt(
   themeName: string,
   themeGuidance: string,
+  theme?: ThemeType,
 ): string {
   return `# 🛑 强制规则 - 必须遵守
 
@@ -860,7 +944,7 @@ function generateFrameworkModePrompt(
 - 项目立项报告、开题报告、标书、专利
 - 有固定模板的重复性文档
 
-${getFileWritingInstructions()}
+${getFileWritingInstructions(theme)}
 
 ${getFormInstructions()}
 
@@ -1641,15 +1725,15 @@ ${themeGuidance}
   // 根据创作模式生成不同的提示词
   switch (mode) {
     case "guided":
-      return generateGuidedModePrompt(themeName, themeGuidance);
+      return generateGuidedModePrompt(themeName, themeGuidance, theme);
     case "fast":
-      return generateFastModePrompt(themeName, themeGuidance);
+      return generateFastModePrompt(themeName, themeGuidance, theme);
     case "hybrid":
-      return generateHybridModePrompt(themeName, themeGuidance);
+      return generateHybridModePrompt(themeName, themeGuidance, theme);
     case "framework":
-      return generateFrameworkModePrompt(themeName, themeGuidance);
+      return generateFrameworkModePrompt(themeName, themeGuidance, theme);
     default:
-      return generateGuidedModePrompt(themeName, themeGuidance);
+      return generateGuidedModePrompt(themeName, themeGuidance, theme);
   }
 }
 

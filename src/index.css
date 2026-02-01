@@ -176,3 +176,24 @@
     opacity: 0;
   }
 }
+
+/* Artifact 流式进度动画 */
+/* @requirements 11.1 */
+@keyframes streaming-progress {
+  0% {
+    width: 0%;
+    transform: translateX(0);
+  }
+  50% {
+    width: 100%;
+    transform: translateX(0);
+  }
+  100% {
+    width: 100%;
+    transform: translateX(100%);
+  }
+}
+
+.animate-streaming-progress {
+  animation: streaming-progress 1.5s ease-in-out infinite;
+}

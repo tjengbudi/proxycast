@@ -234,6 +234,7 @@ interface ChatSidebarProps {
   currentTopicId: string | null;
   onSwitchTopic: (topicId: string) => void;
   onDeleteTopic: (topicId: string) => void;
+  onRenameTopic?: (topicId: string, newTitle: string) => void;
 }
 
 export const ChatSidebar: React.FC<ChatSidebarProps> = ({
@@ -242,11 +243,15 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
   currentTopicId,
   onSwitchTopic,
   onDeleteTopic,
+  onRenameTopic,
 }) => {
   const [activeTab, setActiveTab] = useState<"skills" | "topics">("topics");
   const [skills, setSkills] = useState<Skill[]>([]);
   const [loadingSkills, setLoadingSkills] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [editingTopicId, setEditingTopicId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const editInputRef = React.useRef<HTMLInputElement>(null);
 
   const loadSkills = async () => {
     setLoadingSkills(true);
@@ -308,6 +313,49 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
     onDeleteTopic(topicId);
   };
 
+  // 开始编辑标题
+  const handleStartEdit = (
+    e: React.MouseEvent,
+    topicId: string,
+    currentTitle: string,
+  ) => {
+    e.stopPropagation();
+    setEditingTopicId(topicId);
+    setEditTitle(currentTitle);
+  };
+
+  // 保存编辑的标题
+  const handleSaveEdit = () => {
+    if (editingTopicId && editTitle.trim() && onRenameTopic) {
+      onRenameTopic(editingTopicId, editTitle.trim());
+    }
+    setEditingTopicId(null);
+    setEditTitle("");
+  };
+
+  // 取消编辑
+  const handleCancelEdit = () => {
+    setEditingTopicId(null);
+    setEditTitle("");
+  };
+
+  // 处理输入框键盘事件
+  const handleEditKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      handleSaveEdit();
+    } else if (e.key === "Escape") {
+      handleCancelEdit();
+    }
+  };
+
+  // 当编辑状态变化时，自动聚焦输入框
+  React.useEffect(() => {
+    if (editingTopicId && editInputRef.current) {
+      editInputRef.current.focus();
+      editInputRef.current.select();
+    }
+  }, [editingTopicId]);
+
   const installedSkills = skills.filter((s) => s.installed);
   const availableSkills = skills.filter((s) => !s.installed);
 
@@ -350,7 +398,14 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
                 <ListItem
                   key={topic.id}
                   $active={topic.id === currentTopicId}
-                  onClick={() => onSwitchTopic(topic.id)}
+                  onClick={() => {
+                    if (editingTopicId !== topic.id) {
+                      onSwitchTopic(topic.id);
+                    }
+                  }}
+                  onDoubleClick={(e) =>
+                    handleStartEdit(e, topic.id, topic.title)
+                  }
                 >
                   <MessageSquare
                     size={15}
@@ -360,13 +415,35 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
                         : "opacity-50"
                     }
                   />
-                  <span className="title">{topic.title}</span>
-                  <button
-                    className="delete-btn"
-                    onClick={(e) => handleDeleteClick(e, topic.id)}
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                  {editingTopicId === topic.id ? (
+                    <input
+                      ref={editInputRef}
+                      type="text"
+                      value={editTitle}
+                      onChange={(e) => setEditTitle(e.target.value)}
+                      onKeyDown={handleEditKeyDown}
+                      onBlur={handleSaveEdit}
+                      onClick={(e) => e.stopPropagation()}
+                      style={{
+                        flex: 1,
+                        fontSize: "13px",
+                        padding: "2px 6px",
+                        border: "1px solid hsl(var(--primary))",
+                        borderRadius: "4px",
+                        outline: "none",
+                      }}
+                    />
+                  ) : (
+                    <span className="title">{topic.title}</span>
+                  )}
+                  {editingTopicId !== topic.id && (
+                    <button
+                      className="delete-btn"
+                      onClick={(e) => handleDeleteClick(e, topic.id)}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                 </ListItem>
               ))
             )}

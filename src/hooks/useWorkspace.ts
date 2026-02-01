@@ -6,12 +6,13 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import type { ProjectType } from "@/lib/api/project";
 
 /** Workspace 列表项 */
 export interface Workspace {
   id: string;
   name: string;
-  workspaceType: "persistent" | "temporary";
+  workspaceType: ProjectType;
   rootPath: string;
   isDefault: boolean;
   createdAt: number;
@@ -29,7 +30,7 @@ export interface WorkspaceSettings {
 export interface CreateWorkspaceRequest {
   name: string;
   rootPath: string;
-  workspaceType?: "persistent" | "temporary";
+  workspaceType?: ProjectType;
 }
 
 /** 更新 Workspace 请求 */

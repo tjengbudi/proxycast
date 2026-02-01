@@ -31,26 +31,29 @@ import {
   type CanvasState as GeneralCanvasState,
   DEFAULT_CANVAS_STATE,
 } from "@/components/general-chat/types";
+import { artifactsAtom, selectedArtifactAtom } from "@/lib/artifact/store";
+import { ArtifactRenderer, ArtifactToolbar } from "@/components/artifact";
+import { useAtomValue } from "jotai";
 import { createInitialMusicState } from "@/components/content-creator/canvas/music/types";
 import { parseLyrics } from "@/components/content-creator/canvas/music/utils/lyricsParser";
 import {
   generateContentCreationPrompt,
   isContentCreationTheme,
 } from "@/components/content-creator/utils/systemPrompt";
+import { generateProjectMemoryPrompt } from "@/components/content-creator/utils/projectPrompt";
+import {
+  getProject,
+  getContent,
+  updateContent,
+  type Project,
+  type ProjectType,
+} from "@/lib/api/project";
+import { getProjectMemory, type ProjectMemory } from "@/lib/api/memory";
 
 import type { MessageImage } from "./types";
 import type { ThemeType, LayoutMode } from "@/components/content-creator/types";
 import type { A2UIFormData } from "@/components/content-creator/a2ui/types";
-
-// 文件名到步骤索引的映射（静态常量，移到组件外部避免重复创建）
-const FILE_TO_STEP_MAP: Record<string, number> = {
-  "brief.md": 0, // 明确需求
-  "specification.md": 1, // 调研收集
-  "research.md": 1, // 调研收集（备选文件名）
-  "outline.md": 2, // 生成大纲
-  "draft.md": 3, // 撰写内容
-  "article.md": 4, // 润色优化
-};
+import { getFileToStepMap } from "./utils/workflowMapping";
 
 const PageContainer = styled.div`
   display: flex;
@@ -86,22 +89,69 @@ const ChatContent = styled.div`
   height: 100%;
 `;
 
-// 主题到 ThemeType 的映射
-const THEME_MAP: Record<string, ThemeType> = {
-  general: "general",
-  knowledge: "knowledge",
-  planning: "planning",
-  social: "social-media",
-  image: "poster",
-  office: "document",
-  video: "video",
-  music: "music",
-};
+/**
+ * 将 ProjectType 转换为 ThemeType
+ * 由于类型已统一，大部分情况下直接返回即可
+ */
+function projectTypeToTheme(projectType: ProjectType): ThemeType {
+  // ProjectType 和 ThemeType 现在是统一的
+  // 系统类型 persistent/temporary 映射到 general
+  if (projectType === "persistent" || projectType === "temporary") {
+    return "general";
+  }
+  return projectType as ThemeType;
+}
+
+/**
+ * 判断画布状态是否为空
+ * 用于决定是否自动触发 AI 引导
+ */
+function isCanvasStateEmpty(state: CanvasStateUnion | null): boolean {
+  if (!state) return true;
+
+  switch (state.type) {
+    case "document":
+      // 文档画布：检查 content 是否为空
+      return !state.content || state.content.trim() === "";
+    case "novel":
+      // 小说画布：检查第一章内容是否为空
+      return (
+        state.chapters.length === 0 ||
+        !state.chapters[0].content ||
+        state.chapters[0].content.trim() === ""
+      );
+    case "script":
+      // 剧本画布：检查场景是否有实际内容
+      return (
+        state.scenes.length === 0 ||
+        (state.scenes.length === 1 &&
+          state.scenes[0].dialogues.length === 0 &&
+          !state.scenes[0].description)
+      );
+    case "music":
+      // 音乐画布：检查 sections 是否为空
+      return !state.sections || state.sections.length === 0;
+    case "poster":
+      // 海报画布：检查页面中是否有图层
+      return (
+        state.pages.length === 0 ||
+        (state.pages.length === 1 && state.pages[0].layers.length === 0)
+      );
+    default:
+      return true;
+  }
+}
 
 export function AgentChatPage({
   onNavigate: _onNavigate,
+  projectId,
+  contentId,
+  onRecommendationClick: _onRecommendationClick,
 }: {
   onNavigate?: (page: string) => void;
+  projectId?: string;
+  contentId?: string;
+  onRecommendationClick?: (shortLabel: string, fullPrompt: string) => void;
 }) {
   const [showSidebar, setShowSidebar] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -124,6 +174,12 @@ export function AgentChatPage({
   const [taskFilesExpanded, setTaskFilesExpanded] = useState(false);
   const [selectedFileId, setSelectedFileId] = useState<string | undefined>();
 
+  // 项目上下文状态
+  const [project, setProject] = useState<Project | null>(null);
+  const [projectMemory, setProjectMemory] = useState<ProjectMemory | null>(
+    null,
+  );
+
   // 用于追踪已处理的消息 ID，避免重复处理
   const processedMessageIds = useRef<Set<string>>(new Set());
 
@@ -132,7 +188,7 @@ export function AgentChatPage({
     useRef<(content: string, fileName: string) => void>();
 
   // 工作流状态（仅在内容创作模式下使用）
-  const mappedTheme = THEME_MAP[activeTheme] || "general";
+  const mappedTheme = activeTheme as ThemeType;
   const { steps, currentStepIndex, goToStep, completeStep } = useWorkflow(
     mappedTheme,
     creationMode,
@@ -141,13 +197,75 @@ export function AgentChatPage({
   // 判断是否为内容创作模式
   const isContentCreationMode = isContentCreationTheme(activeTheme);
 
-  // 生成系统提示词（仅在内容创作模式下，根据创作模式生成不同提示词）
+  // Artifact 状态 - 用于在画布中显示
+  const artifacts = useAtomValue(artifactsAtom);
+  const selectedArtifact = useAtomValue(selectedArtifactAtom);
+
+  // 当有新的 artifact 时，自动打开画布
+  useEffect(() => {
+    if (activeTheme !== "general") return;
+    if (artifacts.length === 0) return;
+
+    // 自动打开画布显示 artifact
+    setLayoutMode("chat-canvas");
+  }, [artifacts.length, activeTheme]);
+
+  // 加载项目、Memory 和内容
+  useEffect(() => {
+    const loadData = async () => {
+      if (!projectId) {
+        setProject(null);
+        setProjectMemory(null);
+        return;
+      }
+
+      // 1. 加载项目
+      const p = await getProject(projectId);
+      if (!p) return;
+
+      setProject(p);
+      // 直接使用 projectType 作为 theme（类型已统一）
+      const theme = projectTypeToTheme(p.workspaceType);
+      setActiveTheme(theme);
+
+      // 2. 加载 Memory
+      const memory = await getProjectMemory(projectId);
+      setProjectMemory(memory);
+
+      // 3. 如果有 contentId，加载内容并打开画布
+      if (contentId) {
+        const content = await getContent(contentId);
+        if (content) {
+          const initialState =
+            createInitialCanvasState(theme, content.body || "") ||
+            createInitialDocumentState(content.body || "");
+          setCanvasState(initialState);
+          setLayoutMode("chat-canvas");
+        }
+      }
+    };
+
+    loadData();
+  }, [projectId, contentId]);
+
+  // 生成系统提示词（包含项目 Memory）
   const systemPrompt = useMemo(() => {
+    let prompt = "";
+
     if (isContentCreationMode) {
-      return generateContentCreationPrompt(mappedTheme, creationMode);
+      prompt = generateContentCreationPrompt(mappedTheme, creationMode);
     }
-    return undefined;
-  }, [isContentCreationMode, mappedTheme, creationMode]);
+
+    // 注入项目 Memory
+    if (projectMemory) {
+      const memoryPrompt = generateProjectMemoryPrompt(projectMemory);
+      if (memoryPrompt) {
+        prompt = prompt ? `${prompt}\n\n${memoryPrompt}` : memoryPrompt;
+      }
+    }
+
+    return prompt || undefined;
+  }, [isContentCreationMode, mappedTheme, creationMode, projectMemory]);
 
   // 使用 Agent Chat Hook（传递系统提示词）
   const {
@@ -164,10 +282,12 @@ export function AgentChatPage({
     deleteMessage,
     editMessage,
     handlePermissionResponse,
+    triggerAIGuide,
     topics,
     sessionId,
     switchTopic: originalSwitchTopic,
     deleteTopic,
+    renameTopic,
   } = useAgentChat({
     systemPrompt,
     onWriteFile: (content, fileName) => {
@@ -211,15 +331,10 @@ export function AgentChatPage({
 
     console.log("[AgentChatPage] 恢复会话元数据:", sessionId, sessionMeta);
 
-    // 从会话元数据恢复主题
+    // 从会话元数据恢复主题（类型已统一，直接使用）
     if (sessionMeta.theme) {
-      const themeEntry = Object.entries(THEME_MAP).find(
-        ([_, v]) => v === sessionMeta.theme,
-      );
-      if (themeEntry) {
-        console.log("[AgentChatPage] 恢复主题:", themeEntry[0]);
-        setActiveTheme(themeEntry[0]);
-      }
+      console.log("[AgentChatPage] 恢复主题:", sessionMeta.theme);
+      setActiveTheme(sessionMeta.theme);
     }
 
     // 从会话元数据恢复创建模式
@@ -575,8 +690,18 @@ export function AgentChatPage({
         console.error("[AgentChatPage] 持久化文件失败:", err);
       });
 
-      // 根据文件名推进工作流步骤
-      const stepIndex = FILE_TO_STEP_MAP[fileName];
+      // 同步内容到项目（如果有 contentId）
+      if (contentId) {
+        updateContent(contentId, {
+          body: content,
+        }).catch((err) => {
+          console.error("[AgentChatPage] 同步内容到项目失败:", err);
+        });
+      }
+
+      // 根据文件名推进工作流步骤（使用动态映射）
+      const fileToStepMap = getFileToStepMap(mappedTheme);
+      const stepIndex = fileToStepMap[fileName];
       if (
         stepIndex !== undefined &&
         stepIndex === currentStepIndex &&
@@ -687,6 +812,7 @@ export function AgentChatPage({
     },
     [
       activeTheme, // 添加 activeTheme 依赖
+      contentId,
       currentStepIndex,
       isContentCreationMode,
       completeStep,
@@ -800,8 +926,29 @@ export function AgentChatPage({
     [activeTheme, mappedTheme],
   );
 
-  // 在画布中打开代码块（General 主题专用）- 通过 onFileClick 触发
-  // 此函数保留以备将来扩展使用
+  // 处理代码块点击 - 在画布中显示代码（General 主题专用）
+  const handleCodeBlockClick = useCallback((language: string, code: string) => {
+    console.log("[AgentChatPage] 代码块点击:", language);
+
+    // 使用 General 画布显示代码
+    setGeneralCanvasState({
+      isOpen: true,
+      contentType: "code",
+      content: code,
+      language: language || "text",
+      filename: `代码片段.${language || "txt"}`,
+      isEditing: false,
+    });
+    setLayoutMode("chat-canvas");
+  }, []);
+
+  // 判断是否应该折叠代码块（当画布打开且有 artifact 时）
+  const shouldCollapseCodeBlocks = useMemo(() => {
+    if (activeTheme !== "general") return false;
+    if (layoutMode !== "chat-canvas") return false;
+    // 当画布打开时折叠代码块
+    return artifacts.length > 0 || generalCanvasState.isOpen;
+  }, [activeTheme, layoutMode, artifacts.length, generalCanvasState.isOpen]);
 
   // 处理任务文件点击 - 在画布中显示文件内容
   const handleTaskFileClick = useCallback(
@@ -863,6 +1010,54 @@ export function AgentChatPage({
     [sendMessage],
   );
 
+  // 用于追踪是否已触发过 AI 引导
+  const hasTriggeredGuide = useRef(false);
+  // 存储 triggerAIGuide 函数引用，避免在 useEffect 依赖中包含函数
+  const triggerAIGuideRef = useRef(triggerAIGuide);
+  triggerAIGuideRef.current = triggerAIGuide;
+
+  // 当从项目进入且有 contentId 时，自动启动创作引导
+  useEffect(() => {
+    // 条件：
+    // - 有 contentId（从项目创建内容进入）
+    // - 没有消息（messages.length === 0）
+    // - 项目已加载
+    // - 系统提示词已准备好
+    // - 不在发送中
+    // - 画布内容为空（canvasState 没有实际内容）
+    // - 尚未触发过引导
+    const canvasEmpty = isCanvasStateEmpty(canvasState);
+
+    if (
+      contentId &&
+      messages.length === 0 &&
+      project &&
+      systemPrompt &&
+      !isSending &&
+      canvasEmpty &&
+      !hasTriggeredGuide.current
+    ) {
+      console.log("[AgentChatPage] 自动触发 AI 创作引导");
+      hasTriggeredGuide.current = true;
+      triggerAIGuideRef.current();
+    }
+  }, [
+    contentId,
+    messages.length,
+    project,
+    systemPrompt,
+    isSending,
+    canvasState,
+  ]);
+
+  // 当 contentId 变化时重置引导状态
+  useEffect(() => {
+    hasTriggeredGuide.current = false;
+  }, [contentId]);
+
+  // 判断是否应该显示聊天布局（有消息）
+  const showChatLayout = hasMessages;
+
   // 聊天区域内容
   const chatContent = (
     <ChatContainer>
@@ -875,7 +1070,7 @@ export function AgentChatPage({
         />
       )}
 
-      {hasMessages ? (
+      {showChatLayout ? (
         <ChatContent>
           <MessageList
             messages={messages}
@@ -885,6 +1080,8 @@ export function AgentChatPage({
             onWriteFile={handleWriteFile}
             onFileClick={handleFileClick}
             onPermissionResponse={handlePermissionResponse}
+            collapseCodeBlocks={shouldCollapseCodeBlocks}
+            onCodeBlockClick={handleCodeBlockClick}
           />
         </ChatContent>
       ) : (
@@ -899,10 +1096,14 @@ export function AgentChatPage({
           onCreationModeChange={setCreationMode}
           activeTheme={activeTheme}
           onThemeChange={setActiveTheme}
+          onRecommendationClick={(shortLabel, fullPrompt) => {
+            // 直接将推荐提示词放入输入框，不创建项目
+            setInput(fullPrompt);
+          }}
         />
       )}
 
-      {hasMessages && (
+      {showChatLayout && (
         <>
           <Inputbar
             input={input}
@@ -927,7 +1128,30 @@ export function AgentChatPage({
 
   // 画布区域内容
   const canvasContent = useMemo(() => {
-    // General 主题使用专门的预览画布
+    // 如果有 artifact，优先使用 ArtifactRenderer 渲染
+    const currentArtifact =
+      selectedArtifact ||
+      (artifacts.length > 0 ? artifacts[artifacts.length - 1] : null);
+    if (activeTheme === "general" && currentArtifact) {
+      return (
+        <div className="flex flex-col h-full bg-[#1e2227]">
+          {/* 使用 ArtifactToolbar 组件 */}
+          <ArtifactToolbar
+            artifact={currentArtifact}
+            onClose={handleCloseCanvas}
+          />
+          {/* 渲染区域 */}
+          <div className="flex-1 overflow-auto">
+            <ArtifactRenderer
+              artifact={currentArtifact}
+              isStreaming={currentArtifact.status === "streaming"}
+            />
+          </div>
+        </div>
+      );
+    }
+
+    // General 主题使用专门的预览画布（无 artifact 时）
     if (activeTheme === "general") {
       if (generalCanvasState.isOpen) {
         return (
@@ -958,6 +1182,8 @@ export function AgentChatPage({
     return null;
   }, [
     activeTheme,
+    artifacts,
+    selectedArtifact,
     generalCanvasState,
     canvasState,
     mappedTheme,
@@ -978,6 +1204,7 @@ export function AgentChatPage({
           currentTopicId={sessionId}
           onSwitchTopic={switchTopic}
           onDeleteTopic={deleteTopic}
+          onRenameTopic={renameTopic}
         />
       )}
 

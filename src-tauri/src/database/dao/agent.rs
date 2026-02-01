@@ -14,12 +14,13 @@ impl AgentDao {
         session: &AgentSession,
     ) -> Result<(), rusqlite::Error> {
         conn.execute(
-            "INSERT INTO agent_sessions (id, model, system_prompt, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO agent_sessions (id, model, system_prompt, title, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 session.id,
                 session.model,
                 session.system_prompt,
+                session.title,
                 session.created_at,
                 session.updated_at,
             ],
@@ -33,7 +34,7 @@ impl AgentDao {
         session_id: &str,
     ) -> Result<Option<AgentSession>, rusqlite::Error> {
         let mut stmt = conn.prepare(
-            "SELECT id, model, system_prompt, created_at, updated_at
+            "SELECT id, model, system_prompt, title, created_at, updated_at
              FROM agent_sessions WHERE id = ?",
         )?;
 
@@ -45,8 +46,9 @@ impl AgentDao {
                 model: row.get(1)?,
                 messages: Vec::new(), // 消息需要单独加载
                 system_prompt: row.get(2)?,
-                created_at: row.get(3)?,
-                updated_at: row.get(4)?,
+                title: row.get(3)?,
+                created_at: row.get(4)?,
+                updated_at: row.get(5)?,
             }))
         } else {
             Ok(None)
@@ -70,7 +72,7 @@ impl AgentDao {
     /// 获取所有会话（不包含消息）
     pub fn list_sessions(conn: &Connection) -> Result<Vec<AgentSession>, rusqlite::Error> {
         let mut stmt = conn.prepare(
-            "SELECT id, model, system_prompt, created_at, updated_at
+            "SELECT id, model, system_prompt, title, created_at, updated_at
              FROM agent_sessions ORDER BY updated_at DESC",
         )?;
 
@@ -80,8 +82,9 @@ impl AgentDao {
                 model: row.get(1)?,
                 messages: Vec::new(),
                 system_prompt: row.get(2)?,
-                created_at: row.get(3)?,
-                updated_at: row.get(4)?,
+                title: row.get(3)?,
+                created_at: row.get(4)?,
+                updated_at: row.get(5)?,
             })
         })?;
 
@@ -225,5 +228,33 @@ impl AgentDao {
             |row| row.get(0),
         )?;
         Ok(count > 0)
+    }
+
+    /// 更新会话标题
+    pub fn update_title(
+        conn: &Connection,
+        session_id: &str,
+        title: &str,
+    ) -> Result<(), rusqlite::Error> {
+        conn.execute(
+            "UPDATE agent_sessions SET title = ? WHERE id = ?",
+            params![title, session_id],
+        )?;
+        Ok(())
+    }
+
+    /// 获取会话标题
+    pub fn get_title(
+        conn: &Connection,
+        session_id: &str,
+    ) -> Result<Option<String>, rusqlite::Error> {
+        let mut stmt = conn.prepare("SELECT title FROM agent_sessions WHERE id = ?")?;
+        let mut rows = stmt.query([session_id])?;
+
+        if let Some(row) = rows.next()? {
+            Ok(row.get(0)?)
+        } else {
+            Ok(None)
+        }
     }
 }
