@@ -33,6 +33,61 @@ import {
 } from "../types";
 
 // ============================================================================
+// 内容创作系统指令生成
+// ============================================================================
+
+/**
+ * 主题名称映射
+ */
+const THEME_NAMES: Record<string, string> = {
+  general: "通用对话",
+  "social-media": "社媒内容",
+  poster: "图文海报",
+  music: "歌词曲谱",
+  knowledge: "知识探索",
+  planning: "计划规划",
+  document: "办公文档",
+  video: "短视频",
+  novel: "小说创作",
+};
+
+/**
+ * 生成内容创作系统指令
+ * 告诉 AI 使用 <write_file> 标签输出内容
+ */
+function getContentCreationInstruction(theme: string, _mode: string): string {
+  const themeName = THEME_NAMES[theme] || "内容创作";
+
+  return `【系统指令 - ${themeName}助手】
+
+你是一位专业的${themeName}助手。请遵循以下输出格式：
+
+## 输出格式要求
+
+当需要输出文档内容时，使用 <write_file> 标签：
+
+<write_file path="文件名.md">
+内容...
+</write_file>
+
+**重要规则**：
+1. 标签前：先写一句引导语，如"好的，我来帮你写..."
+2. 标签内：放置完整的文档内容
+3. 标签后：写完成总结，如"✅ 文案已生成！"
+
+**示例**：
+好的，我来帮你写一篇小红书探店文案。
+
+<write_file path="draft.md">
+# 标题
+
+正文内容...
+</write_file>
+
+✅ 文案已生成！你可以在右侧画布中查看和编辑。`;
+}
+
+// ============================================================================
 // Store 状态接口
 // ============================================================================
 
@@ -165,6 +220,12 @@ export interface GeneralChatState {
   updateCanvasContent: (content: string) => void;
   /** 设置画布编辑模式 */
   setCanvasEditing: (isEditing: boolean) => void;
+  /** 流式更新画布内容（用于 write_file 标签） */
+  streamCanvasContent: (
+    path: string,
+    content: string,
+    isComplete: boolean,
+  ) => void;
 
   // ========== Provider 选择操作 ==========
   /** 设置选中的 Provider */
@@ -181,6 +242,27 @@ export interface GeneralChatState {
   // ========== 重置操作 ==========
   /** 重置 Store 到初始状态 */
   reset: () => void;
+
+  // ========== 内容创作状态 ==========
+  /** 当前主题类型 */
+  contentTheme:
+    | "general"
+    | "social-media"
+    | "poster"
+    | "music"
+    | "knowledge"
+    | "planning"
+    | "document"
+    | "video"
+    | "novel";
+  /** 当前创作模式 */
+  contentCreationMode: "guided" | "fast" | "hybrid" | "framework";
+  /** 设置内容创作主题 */
+  setContentTheme: (theme: GeneralChatState["contentTheme"]) => void;
+  /** 设置内容创作模式 */
+  setContentCreationMode: (
+    mode: GeneralChatState["contentCreationMode"],
+  ) => void;
 }
 
 // ============================================================================
@@ -214,6 +296,10 @@ const initialState = {
   workflowManagers: {} as Record<string, ThreeStageWorkflowManager>,
   workflowEnabled: false,
   workflowThreshold: 5,
+
+  // 内容创作状态
+  contentTheme: "general" as GeneralChatState["contentTheme"],
+  contentCreationMode: "guided" as GeneralChatState["contentCreationMode"],
 };
 
 // ============================================================================
@@ -498,9 +584,25 @@ export const useGeneralChatStore = create<GeneralChatState>()(
         try {
           // 调用 Tauri 命令发送消息并开始流式响应
           const { invoke } = await import("@tauri-apps/api/core");
+
+          // 获取内容创作状态
+          const { contentTheme, contentCreationMode } = get();
+
+          // 根据主题生成系统指令前缀
+          let messageToSend = content.trim() || "请分析这张图片";
+
+          // 如果不是通用主题，注入系统指令
+          if (contentTheme !== "general") {
+            const systemInstruction = getContentCreationInstruction(
+              contentTheme,
+              contentCreationMode,
+            );
+            messageToSend = `${systemInstruction}\n\n---\n\n用户请求：${messageToSend}`;
+          }
+
           await invoke("aster_agent_chat_stream", {
             sessionId: currentSessionId,
-            message: content.trim() || "请分析这张图片",
+            message: messageToSend,
             eventName: `general-chat-stream-${currentSessionId}`,
             images: imageData,
           });
@@ -1092,6 +1194,40 @@ export const useGeneralChatStore = create<GeneralChatState>()(
         }));
       },
 
+      streamCanvasContent: (
+        path: string,
+        content: string,
+        _isComplete: boolean,
+      ) => {
+        const { canvas } = get();
+
+        // 如果画布未打开，自动打开并设置初始状态
+        if (!canvas.isOpen) {
+          set((state) => ({
+            canvas: {
+              isOpen: true,
+              contentType: "markdown",
+              content,
+              filename: path,
+              isEditing: false,
+            },
+            ui: {
+              ...state.ui,
+              canvasCollapsed: false,
+            },
+          }));
+        } else {
+          // 画布已打开，只更新内容
+          set((state) => ({
+            canvas: {
+              ...state.canvas,
+              content,
+              filename: path,
+            },
+          }));
+        }
+      },
+
       // ========== Provider 选择操作实现 ==========
 
       setSelectedProvider: (providerKey: string | null) => {
@@ -1258,6 +1394,16 @@ export const useGeneralChatStore = create<GeneralChatState>()(
 
         const messageCount = (messages[sessionId] || []).length;
         return messageCount >= workflowThreshold;
+      },
+
+      // ========== 内容创作操作实现 ==========
+
+      setContentTheme: (theme) => {
+        set({ contentTheme: theme });
+      },
+
+      setContentCreationMode: (mode) => {
+        set({ contentCreationMode: mode });
       },
     }),
     {

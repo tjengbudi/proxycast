@@ -9,6 +9,7 @@
 ```
 src/hooks/
 ├── index.ts                # 导出入口
+├── useUnifiedChat.ts       # 统一对话 Hook（新）
 ├── useProviderPool.ts      # 凭证池管理
 ├── useOAuthCredentials.ts  # OAuth 凭证
 ├── useFlowEvents.ts        # 流量事件
@@ -19,6 +20,45 @@ src/hooks/
 ```
 
 ## 核心 Hooks
+
+### useUnifiedChat（统一对话）
+
+统一的对话 Hook，支持三种模式：Agent、General、Creator。
+
+```typescript
+import { useUnifiedChat } from "@/hooks/useUnifiedChat";
+
+// Agent 模式 - 支持工具调用
+const { messages, sendMessage, stopGeneration } = useUnifiedChat({
+  mode: "agent",
+  providerType: "claude",
+  model: "claude-sonnet-4-20250514",
+});
+
+// Creator 模式 - 支持画布输出
+const creatorChat = useUnifiedChat({
+  mode: "creator",
+  systemPrompt: "你是内容创作助手...",
+  onCanvasUpdate: (path, content) => { /* 更新画布 */ },
+  onWriteFile: (content, fileName) => { /* 文件写入 */ },
+});
+
+// General 模式 - 纯文本对话
+const generalChat = useUnifiedChat({ mode: "general" });
+```
+
+**返回值**：
+- `session` - 当前会话
+- `messages` - 消息列表
+- `isLoading` / `isSending` - 状态
+- `createSession()` / `loadSession()` / `deleteSession()` - 会话管理
+- `sendMessage()` / `stopGeneration()` - 消息操作
+- `configureProvider()` - Provider 配置
+
+**相关文件**：
+- 类型定义：`src/types/chat.ts`
+- API 封装：`src/lib/api/unified-chat.ts`
+- 架构文档：`docs/prd/chat-architecture-redesign.md`
 
 ### useProviderPool
 

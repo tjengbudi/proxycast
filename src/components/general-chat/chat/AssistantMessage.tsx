@@ -4,13 +4,16 @@
  * @module components/general-chat/chat/AssistantMessage
  *
  * @requirements 6.2, 6.7, 2.6, 9.2, 9.3, 9.5
+ *
+ * 支持 <write_file> 标签解析，自动触发画布显示
  */
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import type { Message, ContentBlock } from "../types";
 import { CodeBlock } from "./CodeBlock";
 import { ErrorDisplay } from "./ErrorDisplay";
 import { ImageMessage } from "./ImageMessage";
+import { WriteFileParser } from "@/lib/writeFile";
 
 interface AssistantMessageProps {
   /** 消息数据 */
@@ -29,21 +32,29 @@ interface AssistantMessageProps {
   onRetry?: () => void;
   /** 是否正在重试 */
   isRetrying?: boolean;
+  /** 画布内容更新回调（用于 write_file 标签） */
+  onCanvasUpdate?: (path: string, content: string, isComplete: boolean) => void;
 }
 
 /**
  * 解析 Markdown 内容，提取代码块和图片
+ * 同时处理 <write_file> 标签，将其从显示内容中移除
  */
 const parseContent = (content: string): ContentBlock[] => {
   const blocks: ContentBlock[] = [];
+
+  // 先移除 <write_file> 标签及其内容（这些内容会显示在画布中）
+  const writeFileResult = WriteFileParser.parse(content);
+  const cleanContent = writeFileResult.plainText;
+
   const codeBlockRegex = /```(\w+)?\n([\s\S]*?)```/g;
   let lastIndex = 0;
   let match;
 
-  while ((match = codeBlockRegex.exec(content)) !== null) {
+  while ((match = codeBlockRegex.exec(cleanContent)) !== null) {
     // 添加代码块之前的文本
     if (match.index > lastIndex) {
-      const text = content.slice(lastIndex, match.index).trim();
+      const text = cleanContent.slice(lastIndex, match.index).trim();
       if (text) {
         blocks.push({ type: "text", content: text });
       }
@@ -60,16 +71,16 @@ const parseContent = (content: string): ContentBlock[] => {
   }
 
   // 添加剩余的文本
-  if (lastIndex < content.length) {
-    const text = content.slice(lastIndex).trim();
+  if (lastIndex < cleanContent.length) {
+    const text = cleanContent.slice(lastIndex).trim();
     if (text) {
       blocks.push({ type: "text", content: text });
     }
   }
 
   // 如果没有解析出任何块，返回整个内容作为文本
-  if (blocks.length === 0) {
-    blocks.push({ type: "text", content });
+  if (blocks.length === 0 && cleanContent.trim()) {
+    blocks.push({ type: "text", content: cleanContent });
   }
 
   return blocks;
@@ -87,9 +98,11 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
   onRegenerate,
   onRetry,
   isRetrying = false,
+  onCanvasUpdate,
 }) => {
   const [showActions, setShowActions] = useState(false);
   const [copied, setCopied] = useState(false);
+  const lastCanvasUpdateRef = useRef<string>("");
 
   // 判断是否为错误状态
   const isError = message.status === "error" && message.error;
@@ -97,6 +110,29 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
   // 使用流式内容或消息内容
   const displayContent =
     isStreaming && streamingContent ? streamingContent : message.content;
+
+  // 流式解析 <write_file> 标签，实时更新画布
+  useEffect(() => {
+    if (!onCanvasUpdate || !displayContent) return;
+
+    const result = WriteFileParser.parse(displayContent);
+
+    // 如果有 write_file 块，更新画布
+    if (result.blocks.length > 0) {
+      const firstBlock = result.blocks[0];
+      const updateKey = `${firstBlock.path}:${firstBlock.content.length}`;
+
+      // 避免重复更新
+      if (updateKey !== lastCanvasUpdateRef.current) {
+        lastCanvasUpdateRef.current = updateKey;
+        onCanvasUpdate(
+          firstBlock.path,
+          firstBlock.content,
+          firstBlock.isComplete,
+        );
+      }
+    }
+  }, [displayContent, onCanvasUpdate]);
 
   // 解析内容块（仅用于文本内容的 Markdown 解析）
   const parsedContentBlocks = useMemo(

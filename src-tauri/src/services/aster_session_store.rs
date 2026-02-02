@@ -173,6 +173,33 @@ impl SessionStore for ProxyCastSessionStore {
             .lock()
             .map_err(|e| anyhow!("数据库锁定失败: {}", e))?;
 
+        // 检查会话是否存在，如果不存在则自动创建
+        let session_exists: bool = conn
+            .query_row(
+                "SELECT 1 FROM agent_sessions WHERE id = ?",
+                [session_id],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+
+        if !session_exists {
+            let now = Utc::now().to_rfc3339();
+            conn.execute(
+                "INSERT INTO agent_sessions (id, model, system_prompt, title, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                rusqlite::params![
+                    session_id,
+                    "agent:default",
+                    None::<String>,
+                    "新对话",
+                    now,
+                    now
+                ],
+            )
+            .map_err(|e| anyhow!("自动创建会话失败: {}", e))?;
+            tracing::info!("[SessionStore] 自动创建会话: {}", session_id);
+        }
+
         let role = Self::message_role_to_string(message);
         let content_json = serde_json::to_string(&message.content)
             .map_err(|e| anyhow!("序列化消息内容失败: {}", e))?;

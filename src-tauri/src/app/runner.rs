@@ -1228,6 +1228,16 @@ pub fn run() {
             commands::general_chat_cmd::general_chat_send_message,
             commands::general_chat_cmd::general_chat_stop_generation,
             commands::general_chat_cmd::general_chat_generate_title,
+            // Unified Chat commands (统一对话 API)
+            commands::unified_chat_cmd::chat_create_session,
+            commands::unified_chat_cmd::chat_list_sessions,
+            commands::unified_chat_cmd::chat_get_session,
+            commands::unified_chat_cmd::chat_delete_session,
+            commands::unified_chat_cmd::chat_rename_session,
+            commands::unified_chat_cmd::chat_get_messages,
+            commands::unified_chat_cmd::chat_send_message,
+            commands::unified_chat_cmd::chat_stop_generation,
+            commands::unified_chat_cmd::chat_configure_provider,
             // Workspace commands
             commands::workspace_cmd::workspace_create,
             commands::workspace_cmd::workspace_list,

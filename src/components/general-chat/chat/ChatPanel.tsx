@@ -126,6 +126,9 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   const getWorkflowManager = useGeneralChatStore(
     (state) => state.getWorkflowManager,
   );
+  const streamCanvasContent = useGeneralChatStore(
+    (state) => state.streamCanvasContent,
+  );
 
   // 获取分页状态
   const paginationState = sessionId
@@ -250,6 +253,14 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     [onOpenCanvas],
   );
 
+  // 处理流式画布更新（用于 write_file 标签）
+  const handleCanvasUpdate = useCallback(
+    (path: string, content: string, isComplete: boolean) => {
+      streamCanvasContent(path, content, isComplete);
+    },
+    [streamCanvasContent],
+  );
+
   // 处理重试消息
   const handleRetry = useCallback(
     async (messageId: string) => {
@@ -317,6 +328,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
               hasMoreMessages={hasMoreMessages}
               isLoadingMore={isLoadingMore}
               onLoadMore={handleLoadMore}
+              onCanvasUpdate={handleCanvasUpdate}
             />
           )}
         </div>

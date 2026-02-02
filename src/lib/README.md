@@ -11,6 +11,9 @@
 
 - `artifact/` - Artifact 系统核心库（Requirements 1.1-1.5）
   - `types.ts` - Artifact 类型定义
+- `writeFile/` - WriteFile 标签解析器
+  - `parser.ts` - `<write_file>` 标签流式解析器
+  - `index.ts` - 模块导出
 - `api/` - API 调用封装
   - `apiKeyProvider.ts` - API Key Provider API 封装（Requirements 9.1）
   - `pluginUI.ts` - 插件 UI API（Requirements 3.1）

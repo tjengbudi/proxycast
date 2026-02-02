@@ -4,6 +4,7 @@
 //! 处理消息发送、事件流转换和会话管理
 
 use crate::agent::aster_state::{AsterAgentState, SessionConfigBuilder};
+use crate::database::DbConnection;
 use aster::conversation::message::Message;
 use aster::session::SessionManager;
 use futures::StreamExt;
@@ -20,6 +21,7 @@ impl AsterAgentWrapper {
     ///
     /// # Arguments
     /// * `state` - Aster Agent 状态
+    /// * `db` - 数据库连接
     /// * `app` - Tauri AppHandle，用于发送事件
     /// * `message` - 用户消息文本
     /// * `session_id` - 会话 ID
@@ -29,14 +31,15 @@ impl AsterAgentWrapper {
     /// 成功时返回 Ok(())，失败时返回错误信息
     pub async fn send_message(
         state: &AsterAgentState,
+        db: &DbConnection,
         app: &AppHandle,
         message: String,
         session_id: String,
         event_name: String,
     ) -> Result<(), String> {
-        // 1. 初始化检查
+        // 1. 初始化检查（使用带数据库的版本）
         if !state.is_initialized().await {
-            state.init_agent().await?;
+            state.init_agent_with_db(db).await?;
         }
 
         // 2. 创建取消令牌

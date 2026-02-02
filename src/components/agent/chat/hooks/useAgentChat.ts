@@ -895,15 +895,19 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
           ? images.map((img) => ({ data: img.data, media_type: img.mediaType }))
           : undefined;
 
+      // systemPrompt 已在创建 session 时传递给后端，无需前端注入
+      const messageToSend = content;
+
       console.log("[AgentChat] 发送消息:", {
-        content: content.slice(0, 50),
+        content: messageToSend.slice(0, 100),
         sessionId: activeSessionId,
         model,
         provider: providerType,
+        hasSystemPrompt: !!systemPrompt,
       });
 
       await sendAgentMessageStream(
-        content,
+        messageToSend,
         eventName,
         activeSessionId, // 传递 sessionId 以保持上下文
         model || undefined,
@@ -949,9 +953,16 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
   const switchTopic = async (topicId: string) => {
     if (topicId === sessionId) return;
 
+    console.log("[useAgentChat] 切换话题:", topicId);
+
     try {
       // 从后端加载消息历史
       const agentMessages = await getAgentSessionMessages(topicId);
+      console.log("[useAgentChat] 加载到消息数量:", agentMessages.length);
+      console.log(
+        "[useAgentChat] 原始消息:",
+        JSON.stringify(agentMessages.slice(0, 2), null, 2),
+      );
 
       // 转换为前端 Message 格式
       const loadedMessages: Message[] = agentMessages.map((msg, index) => {
@@ -969,6 +980,10 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
             .join("\n");
         }
 
+        console.log(
+          `[useAgentChat] 消息 ${index}: role=${msg.role}, content类型=${typeof msg.content}, 内容长度=${content.length}`,
+        );
+
         return {
           id: `${topicId}-${index}`,
           role: msg.role as "user" | "assistant",
@@ -978,6 +993,7 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
         };
       });
 
+      console.log("[useAgentChat] 转换后消息数量:", loadedMessages.length);
       setMessages(loadedMessages);
       setSessionId(topicId);
       toast.info("已切换话题");

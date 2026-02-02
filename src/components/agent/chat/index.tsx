@@ -423,6 +423,8 @@ export function AgentChatPage({
   // 包装 switchTopic，在切换话题时重置相关状态
   const switchTopic = useCallback(
     async (topicId: string) => {
+      console.log("[AgentChatPage] switchTopic 包装函数被调用:", topicId);
+
       // 先重置本地状态
       setLayoutMode("chat");
       setCanvasState(null);
@@ -435,7 +437,9 @@ export function AgentChatPage({
       restoredFilesSessionId.current = null;
 
       // 然后调用原始的 switchTopic
+      console.log("[AgentChatPage] 调用 originalSwitchTopic");
       await originalSwitchTopic(topicId);
+      console.log("[AgentChatPage] originalSwitchTopic 完成");
     },
     [originalSwitchTopic],
   );

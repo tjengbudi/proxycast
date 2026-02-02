@@ -3,8 +3,21 @@
 //! 管理 Aster Agent 实例和相关状态
 //! 提供 Tauri 应用与 Aster 框架的桥接
 //! 支持从 ProxyCast 凭证池自动选择凭证
+//!
+//! ## 重要：SessionStore 注入
+//!
+//! 为了让 Aster Agent 的消息存储到 ProxyCast 数据库，必须在创建 Agent 时
+//! 注入 `ProxyCastSessionStore`。使用 `init_agent_with_db()` 方法而不是 `init_agent()`。
+//!
+//! ## Agent 身份配置
+//!
+//! 通过 Aster 框架的 `AgentIdentity` API 设置 ProxyCast 专属的 Agent 身份，
+//! 包括名称、语言偏好、产品描述等。这是架构层面的正确做法，
+//! 而不是简单地追加提示词。
+//!
+//! 参考文档：`docs/prd/chat-architecture-redesign.md`
 
-use aster::agents::{Agent, SessionConfig};
+use aster::agents::{Agent, AgentIdentity, SessionConfig};
 use aster::model::ModelConfig;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -14,6 +27,7 @@ use crate::agent::credential_bridge::{
     create_aster_provider, AsterProviderConfig, CredentialBridge,
 };
 use crate::database::DbConnection;
+use crate::services::aster_session_store::ProxyCastSessionStore;
 
 /// Provider 配置信息
 #[derive(Debug, Clone)]
@@ -61,15 +75,64 @@ impl AsterAgentState {
         }
     }
 
-    /// 初始化 Agent
+    /// 初始化 Agent（带数据库连接）
     ///
-    /// 如果 Agent 尚未初始化，则创建新的 Agent 实例
+    /// 创建 Agent 并注入 ProxyCastSessionStore，确保消息存储到 ProxyCast 数据库。
+    /// 同时设置 ProxyCast 专属的 Agent 身份（名称、语言、描述）。
+    ///
+    /// **推荐使用此方法**而不是 `init_agent()`。
+    ///
+    /// # 参数
+    /// - `db`: 数据库连接，用于创建 SessionStore
+    pub async fn init_agent_with_db(&self, db: &DbConnection) -> Result<(), String> {
+        let mut agent_guard = self.agent.write().await;
+        if agent_guard.is_none() {
+            // 创建 SessionStore
+            let session_store = Arc::new(ProxyCastSessionStore::new(db.clone()));
+
+            // 创建 Agent 并注入 SessionStore
+            let agent = Agent::new().with_session_store(session_store);
+
+            // 使用异步方法设置 ProxyCast 专属身份
+            let identity = Self::create_proxycast_identity();
+            agent.set_identity(identity).await;
+
+            *agent_guard = Some(agent);
+            tracing::info!(
+                "[AsterAgent] Agent 初始化成功，已注入 ProxyCastSessionStore 和 ProxyCast 身份"
+            );
+        }
+        Ok(())
+    }
+
+    /// 创建 ProxyCast 专属的 Agent 身份配置
+    fn create_proxycast_identity() -> AgentIdentity {
+        AgentIdentity::new("ProxyCast 助手")
+            .with_language("Chinese")
+            .with_description(
+                "ProxyCast 是一个 AI 代理服务应用，帮助用户管理和使用各种 AI 模型的凭证。",
+            )
+            .with_custom_prompt(PROXYCAST_IDENTITY_PROMPT.to_string())
+    }
+
+    /// 初始化 Agent（无数据库版本）
+    ///
+    /// **警告**：此方法创建的 Agent 不会将消息存储到 ProxyCast 数据库，
+    /// 消息会存储到 Aster 默认的 `~/.aster/sessions.db`。
+    ///
+    /// 建议使用 `init_agent_with_db()` 代替。
+    #[deprecated(
+        since = "0.1.0",
+        note = "请使用 init_agent_with_db() 以确保消息存储到 ProxyCast 数据库"
+    )]
     pub async fn init_agent(&self) -> Result<(), String> {
         let mut agent_guard = self.agent.write().await;
         if agent_guard.is_none() {
             let agent = Agent::new();
             *agent_guard = Some(agent);
-            tracing::info!("Aster Agent initialized");
+            tracing::warn!(
+                "[AsterAgent] Agent 初始化（无 SessionStore），消息将存储到 Aster 默认数据库"
+            );
         }
         Ok(())
     }
@@ -77,13 +140,19 @@ impl AsterAgentState {
     /// 配置 Provider
     ///
     /// 根据配置创建并设置 Provider
+    ///
+    /// # 参数
+    /// - `config`: Provider 配置
+    /// - `session_id`: 会话 ID
+    /// - `db`: 数据库连接（用于初始化 Agent）
     pub async fn configure_provider(
         &self,
         config: ProviderConfig,
         session_id: &str,
+        db: &DbConnection,
     ) -> Result<(), String> {
-        // 确保 Agent 已初始化
-        self.init_agent().await?;
+        // 确保 Agent 已初始化（使用带数据库的版本）
+        self.init_agent_with_db(db).await?;
 
         // 设置环境变量（Aster 的 provider 从环境变量读取配置）
         self.set_provider_env_vars(&config);
@@ -135,8 +204,8 @@ impl AsterAgentState {
         model: &str,
         session_id: &str,
     ) -> Result<AsterProviderConfig, String> {
-        // 确保 Agent 已初始化
-        self.init_agent().await?;
+        // 确保 Agent 已初始化（使用带数据库的版本）
+        self.init_agent_with_db(db).await?;
 
         // 从凭证池选择凭证并获取配置
         let aster_config = self
@@ -329,6 +398,7 @@ impl AsterAgentState {
 pub struct SessionConfigBuilder {
     id: String,
     max_turns: Option<u32>,
+    system_prompt: Option<String>,
 }
 
 impl SessionConfigBuilder {
@@ -336,11 +406,17 @@ impl SessionConfigBuilder {
         Self {
             id: id.into(),
             max_turns: None,
+            system_prompt: None,
         }
     }
 
     pub fn max_turns(mut self, turns: u32) -> Self {
         self.max_turns = Some(turns);
+        self
+    }
+
+    pub fn system_prompt(mut self, prompt: impl Into<String>) -> Self {
+        self.system_prompt = Some(prompt.into());
         self
     }
 
@@ -350,6 +426,7 @@ impl SessionConfigBuilder {
             schedule_id: None,
             max_turns: self.max_turns,
             retry_config: None,
+            system_prompt: self.system_prompt,
         }
     }
 }
@@ -378,6 +455,7 @@ mod tests {
         let state = AsterAgentState::new();
         assert!(!state.is_initialized().await);
 
+        #[allow(deprecated)]
         state.init_agent().await.unwrap();
         assert!(state.is_initialized().await);
     }
@@ -397,3 +475,33 @@ mod tests {
         assert!(!state.cancel_session(session_id).await);
     }
 }
+
+// =============================================================================
+// ProxyCast Agent 身份提示词
+// =============================================================================
+
+/// ProxyCast 专属的 Agent 身份提示词
+///
+/// 这是完整的身份定义，会替换 Aster 框架默认的 "aster by Block" 身份。
+/// 框架的能力描述（Extensions、Response Guidelines）会自动追加。
+const PROXYCAST_IDENTITY_PROMPT: &str = r#"你是 ProxyCast 助手，一个专业、友好的 AI 技术伙伴。
+
+## 关于 ProxyCast
+
+ProxyCast 是一个 AI 代理服务应用，帮助用户：
+- 管理多个 AI 模型提供商的凭证（OpenAI、Claude、Gemini、Kiro 等）
+- 通过统一的 API 接口访问不同的 AI 模型
+- 实现凭证池的负载均衡和健康检查
+
+## 语言规范
+
+1. **始终使用中文回复**：除非用户明确要求使用其他语言
+2. **代码注释使用中文**：生成代码时，注释应使用中文
+3. **技术术语保持原文**：API、JSON、HTTP、Token 等专业术语保持英文
+
+## 交互风格
+
+- 简洁专业，直接给出解决方案
+- 友好但不啰嗦，像经验丰富的技术伙伴
+- 遇到问题时，先分析原因再提供方案
+"#;

@@ -29,6 +29,8 @@ interface MessageItemProps {
   onRetry?: () => void;
   /** 是否正在重试 */
   isRetrying?: boolean;
+  /** 画布内容更新回调（用于 write_file 标签） */
+  onCanvasUpdate?: (path: string, content: string, isComplete: boolean) => void;
 }
 
 /**
@@ -43,6 +45,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
   onRegenerate,
   onRetry,
   isRetrying,
+  onCanvasUpdate,
 }) => {
   if (message.role === "user") {
     return <UserMessage message={message} onCopy={onCopy} />;
@@ -59,6 +62,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
         onRegenerate={onRegenerate}
         onRetry={onRetry}
         isRetrying={isRetrying}
+        onCanvasUpdate={onCanvasUpdate}
       />
     );
   }

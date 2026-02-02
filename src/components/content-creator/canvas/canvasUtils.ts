@@ -33,15 +33,20 @@ export type CanvasType = "document" | "poster" | "music" | "script" | "novel";
 
 /**
  * 主题到画布类型的映射
- * 与 ProjectType 统一后的配置
+ * 所有主题都支持 document 画布，特定主题有专用画布
+ *
+ * 设计原则：
+ * - 所有主题都可以触发画布（当检测到 <write_file> 标签时）
+ * - 特定主题使用专用画布类型（如 music、poster、script）
+ * - 通用主题（general、knowledge、planning）使用 document 画布
  */
 const THEME_TO_CANVAS_TYPE: Record<ThemeType, CanvasType | null> = {
-  general: null,
+  general: "document", // 通用对话也支持文档画布
   "social-media": "document",
   poster: "poster",
   music: "music",
-  knowledge: null,
-  planning: null,
+  knowledge: "document", // 知识探索支持文档画布
+  planning: "document", // 计划规划支持文档画布
   document: "document",
   video: "script",
   novel: "novel",

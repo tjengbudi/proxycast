@@ -58,6 +58,8 @@ interface MessageListProps {
   isLoadingMore?: boolean;
   /** 加载更多消息回调 */
   onLoadMore?: () => void;
+  /** 画布内容更新回调（用于 write_file 标签） */
+  onCanvasUpdate?: (path: string, content: string, isComplete: boolean) => void;
 }
 
 /**
@@ -81,6 +83,7 @@ export const MessageList: React.FC<MessageListProps> = ({
   hasMoreMessages = true,
   isLoadingMore = false,
   onLoadMore,
+  onCanvasUpdate,
 }) => {
   const parentRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
@@ -231,6 +234,7 @@ export const MessageList: React.FC<MessageListProps> = ({
           }
           onRetry={onRetry ? () => onRetry(message.id) : undefined}
           isRetrying={isRetrying}
+          onCanvasUpdate={isStreamingMessage ? onCanvasUpdate : undefined}
         />
       );
     },
@@ -243,6 +247,7 @@ export const MessageList: React.FC<MessageListProps> = ({
       onRegenerate,
       onRetry,
       retryingMessageId,
+      onCanvasUpdate,
     ],
   );
 

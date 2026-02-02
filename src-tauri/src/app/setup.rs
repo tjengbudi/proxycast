@@ -9,6 +9,7 @@ use tauri::{App, Manager};
 use crate::agent::AsterAgentState;
 use crate::database;
 use crate::flow_monitor::FlowInterceptor;
+use crate::services::aster_session_store::ProxyCastSessionStore;
 use crate::services::provider_pool_service::ProviderPoolService;
 use crate::services::token_cache_service::TokenCacheService;
 use crate::telemetry;
@@ -32,6 +33,18 @@ pub fn setup_app(
     flow_monitor: Arc<crate::flow_monitor::FlowMonitor>,
     flow_interceptor: Arc<FlowInterceptor>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // 注册全局 SessionStore（作为后备方案）
+    // 注意：主要的 SessionStore 注入在 AsterAgentState::init_agent_with_db() 中完成
+    // 这里的全局注册是为了兼容可能直接使用 SessionManager 静态方法的代码
+    let session_store = Arc::new(ProxyCastSessionStore::new(db.clone()));
+    tauri::async_runtime::block_on(async {
+        if let Err(e) = aster::session::set_global_session_store(session_store).await {
+            tracing::warn!("[启动] 注册全局 SessionStore 失败（可能已注册）: {}", e);
+        } else {
+            tracing::info!("[启动] 全局 ProxyCastSessionStore 已注册（后备方案）");
+        }
+    });
+
     // 初始化托盘管理器
     match TrayManager::new(app.handle()) {
         Ok(tray_manager) => {

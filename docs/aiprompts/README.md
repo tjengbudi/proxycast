@@ -36,6 +36,9 @@ AI Agent 专用文档目录，提供模块级别的详细说明。
 - `aster-integration.md` - **Aster 框架集成方案**
 - `workspace.md` - **Workspace 设计文档**（工作目录管理）
 
+### 内容创作
+- `content-creator.md` - **内容创作系统**（write_file 标签、画布联动）
+
 ## 使用方式
 
 AI Agent 在处理特定模块时，应先阅读对应的 aiprompts 文档：
@@ -52,6 +55,9 @@ AI Agent 在处理特定模块时，应先阅读对应的 aiprompts 文档：
 
 # 处理 Workspace 相关任务
 → 先读 docs/aiprompts/workspace.md
+
+# 处理内容创作、画布联动
+→ 先读 docs/aiprompts/content-creator.md
 ```
 
 ## 更新提醒

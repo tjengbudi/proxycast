@@ -9,6 +9,7 @@ use crate::agent::event_converter::convert_agent_event;
 use crate::agent::{
     AsterAgentState, AsterAgentWrapper, SessionDetail, SessionInfo, TauriAgentEvent,
 };
+use crate::database::dao::agent::AgentDao;
 use crate::database::DbConnection;
 use aster::conversation::message::Message;
 use aster::session::SessionManager;
@@ -83,10 +84,11 @@ pub struct ConfigureFromPoolRequest {
 #[tauri::command]
 pub async fn aster_agent_init(
     state: State<'_, AsterAgentState>,
+    db: State<'_, DbConnection>,
 ) -> Result<AsterAgentStatus, String> {
     tracing::info!("[AsterAgent] 初始化 Agent");
 
-    state.init_agent().await?;
+    state.init_agent_with_db(&db).await?;
 
     let provider_config = state.get_provider_config().await;
 
@@ -105,6 +107,7 @@ pub async fn aster_agent_init(
 #[tauri::command]
 pub async fn aster_agent_configure_provider(
     state: State<'_, AsterAgentState>,
+    db: State<'_, DbConnection>,
     request: ConfigureProviderRequest,
     session_id: String,
 ) -> Result<AsterAgentStatus, String> {
@@ -123,7 +126,7 @@ pub async fn aster_agent_configure_provider(
     };
 
     state
-        .configure_provider(config.clone(), &session_id)
+        .configure_provider(config.clone(), &session_id, &db)
         .await?;
 
     Ok(AsterAgentStatus {
@@ -211,6 +214,7 @@ pub struct ImageInput {
 pub async fn aster_agent_chat_stream(
     app: AppHandle,
     state: State<'_, AsterAgentState>,
+    db: State<'_, DbConnection>,
     request: AsterChatRequest,
 ) -> Result<(), String> {
     tracing::info!(
@@ -219,14 +223,25 @@ pub async fn aster_agent_chat_stream(
         request.event_name
     );
 
-    // 确保 Agent 已初始化
+    // 确保 Agent 已初始化（使用带数据库的版本，注入 SessionStore）
     if !state.is_initialized().await {
-        state.init_agent().await?;
+        state.init_agent_with_db(&db).await?;
     }
 
-    // 确保 session 在 Aster 数据库中存在
+    // 确保 session 在数据库中存在
     // 如果 session 不存在，自动创建
     let session_id = ensure_session_exists(&request.session_id).await?;
+
+    // 从数据库读取 session 的 system_prompt
+    let system_prompt = {
+        let db_conn = db
+            .lock()
+            .map_err(|e| format!("获取数据库连接失败: {}", e))?;
+        let session = AgentDao::get_session(&db_conn, &session_id)
+            .map_err(|e| format!("获取 session 失败: {}", e))?
+            .ok_or_else(|| format!("Session 不存在: {}", session_id))?;
+        session.system_prompt
+    };
 
     // 如果提供了 Provider 配置，则配置 Provider
     if let Some(provider_config) = &request.provider_config {
@@ -237,7 +252,7 @@ pub async fn aster_agent_chat_stream(
             base_url: provider_config.base_url.clone(),
             credential_uuid: None,
         };
-        state.configure_provider(config, &session_id).await?;
+        state.configure_provider(config, &session_id, &db).await?;
     }
 
     // 检查 Provider 是否已配置
@@ -251,8 +266,12 @@ pub async fn aster_agent_chat_stream(
     // 创建用户消息
     let user_message = Message::user().with_text(&request.message);
 
-    // 创建会话配置
-    let session_config = SessionConfigBuilder::new(&session_id).build();
+    // 创建会话配置，包含 system_prompt
+    let mut session_config_builder = SessionConfigBuilder::new(&session_id);
+    if let Some(prompt) = system_prompt {
+        session_config_builder = session_config_builder.system_prompt(prompt);
+    }
+    let session_config = session_config_builder.build();
 
     // 获取 Agent Arc 并保持 guard 在整个流处理期间存活
     let agent_arc = state.get_agent_arc();

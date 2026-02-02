@@ -5,6 +5,54 @@
 use crate::agent::types::{AgentMessage, AgentSession, MessageContent, ToolCall};
 use rusqlite::{params, Connection};
 
+/// 解析消息内容 JSON，支持多种格式
+///
+/// 支持的格式：
+/// 1. Aster 格式: `[{"Text":"..."}, {"ToolRequest":...}]`
+/// 2. ProxyCast 纯文本: `"string"`
+/// 3. ProxyCast Parts: `[{"type":"text","text":"..."}]`
+fn parse_message_content(content_json: &str) -> MessageContent {
+    // 尝试解析为 Aster 格式 (Vec<AsterMessageContent>)
+    if let Ok(aster_contents) = serde_json::from_str::<Vec<serde_json::Value>>(content_json) {
+        let mut text_parts: Vec<String> = Vec::new();
+
+        for item in aster_contents {
+            // Aster 格式: {"Text": "..."} 或 {"ToolRequest": ...}
+            if let Some(text) = item.get("Text").and_then(|v| v.as_str()) {
+                text_parts.push(text.to_string());
+            }
+            // 也支持小写 "text" 格式
+            else if let Some(text) = item.get("text").and_then(|v| v.as_str()) {
+                text_parts.push(text.to_string());
+            }
+            // ProxyCast Parts 格式: {"type": "text", "text": "..."}
+            else if item.get("type").and_then(|v| v.as_str()) == Some("text") {
+                if let Some(text) = item.get("text").and_then(|v| v.as_str()) {
+                    text_parts.push(text.to_string());
+                }
+            }
+            // 忽略 ToolRequest、ToolResponse 等非文本内容
+        }
+
+        if !text_parts.is_empty() {
+            return MessageContent::Text(text_parts.join("\n"));
+        }
+    }
+
+    // 尝试解析为纯文本字符串
+    if let Ok(text) = serde_json::from_str::<String>(content_json) {
+        return MessageContent::Text(text);
+    }
+
+    // 尝试直接解析为 ProxyCast MessageContent
+    if let Ok(content) = serde_json::from_str::<MessageContent>(content_json) {
+        return content;
+    }
+
+    // 兜底：返回原始 JSON 作为文本
+    MessageContent::Text(content_json.to_string())
+}
+
 pub struct AgentDao;
 
 impl AgentDao {
@@ -178,14 +226,10 @@ impl AgentDao {
             let tool_calls_json: Option<String> = row.get(3)?;
             let tool_call_id: Option<String> = row.get(4)?;
 
-            // 解析 JSON
-            let content: MessageContent = serde_json::from_str(&content_json).map_err(|e| {
-                rusqlite::Error::FromSqlConversionFailure(
-                    1,
-                    rusqlite::types::Type::Text,
-                    Box::new(e),
-                )
-            })?;
+            // 解析 JSON - 支持多种格式
+            // 1. Aster 格式: [{"Text":"..."}, {"Text":"..."}]
+            // 2. ProxyCast 格式: "string" 或 [{"type":"text","text":"..."}]
+            let content = parse_message_content(&content_json);
 
             let tool_calls: Option<Vec<ToolCall>> = tool_calls_json
                 .map(|json| serde_json::from_str(&json))

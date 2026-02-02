@@ -33,6 +33,7 @@ pub struct CreateSessionResponse {
 pub async fn agent_start_process(
     agent_state: State<'_, AsterAgentState>,
     app_state: State<'_, AppState>,
+    db: State<'_, DbConnection>,
     _port: Option<u16>,
 ) -> Result<AgentProcessStatus, String> {
     tracing::info!("[Agent] 初始化 Aster Agent");
@@ -50,7 +51,7 @@ pub async fn agent_start_process(
         return Err("ProxyCast API Server 未运行，请先启动服务器".to_string());
     }
 
-    agent_state.init_agent().await?;
+    agent_state.init_agent_with_db(&db).await?;
 
     let base_url = format!("http://{}:{}", host, port);
 
@@ -122,8 +123,8 @@ pub async fn agent_create_session(
         skills.as_ref().map(|s| s.len())
     );
 
-    // 初始化 Agent
-    agent_state.init_agent().await?;
+    // 初始化 Agent（使用带数据库的版本）
+    agent_state.init_agent_with_db(&db).await?;
 
     // 生成会话 ID
     let session_id = uuid::Uuid::new_v4().to_string();

@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod api_key_provider;
+pub mod chat;
 pub mod general_chat;
 pub mod installed_plugins;
 pub mod mcp;
