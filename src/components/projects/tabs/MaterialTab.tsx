@@ -20,10 +20,16 @@ import {
   LinkIcon,
   TrashIcon,
   EyeIcon,
+  PaletteIcon,
+  LayoutIcon,
 } from "lucide-react";
-import type { MaterialType, UploadMaterialRequest } from "@/types/material";
+import type {
+  Material,
+  MaterialType,
+  UploadMaterialRequest,
+} from "@/types/material";
 import { MaterialTypeLabels } from "@/types/material";
-import { MaterialUploadDialog } from "../dialogs";
+import { MaterialUploadDialog, MaterialPreviewDialog } from "../dialogs";
 
 export interface MaterialTabProps {
   /** 项目 ID */
@@ -36,6 +42,9 @@ const MaterialTypeIcons: Record<MaterialType, typeof FileIcon> = {
   text: FileTextIcon,
   data: DatabaseIcon,
   link: LinkIcon,
+  icon: FileIcon,
+  color: PaletteIcon,
+  layout: LayoutIcon,
 };
 
 /**
@@ -55,6 +64,7 @@ export function MaterialTab({ projectId }: MaterialTabProps) {
   } = useMaterials(projectId);
   const [searchQuery, setSearchQuery] = useState("");
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [previewMaterial, setPreviewMaterial] = useState<Material | null>(null);
 
   const handleSearch = (query: string) => {
     setSearchQuery(query);
@@ -163,7 +173,12 @@ export function MaterialTab({ projectId }: MaterialTabProps) {
                     </Badge>
                   </div>
                   <div className="flex items-center gap-1">
-                    <Button variant="ghost" size="icon" className="h-7 w-7">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => setPreviewMaterial(material)}
+                    >
                       <EyeIcon className="h-4 w-4" />
                     </Button>
                     <Button
@@ -216,6 +231,13 @@ export function MaterialTab({ projectId }: MaterialTabProps) {
         onOpenChange={setUploadDialogOpen}
         projectId={projectId}
         onUpload={handleUpload}
+      />
+
+      {/* 预览对话框 */}
+      <MaterialPreviewDialog
+        open={!!previewMaterial}
+        onOpenChange={(open) => !open && setPreviewMaterial(null)}
+        material={previewMaterial}
       />
     </div>
   );

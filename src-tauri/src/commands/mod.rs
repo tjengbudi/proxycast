@@ -1,3 +1,4 @@
+pub mod a2ui_form_cmd;
 pub mod agent_cmd;
 pub mod api_key_provider_cmd;
 pub mod asr_cmd;
@@ -28,6 +29,7 @@ pub mod persona_cmd;
 pub mod plugin_cmd;
 pub mod plugin_install_cmd;
 pub mod plugin_rpc_cmd;
+pub mod poster_material_cmd;
 pub mod prompt_cmd;
 pub mod provider_pool_cmd;
 pub mod resilience_cmd;

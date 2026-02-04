@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { toast } from "sonner";
 import { safeListen } from "@/lib/dev-bridge";
 import type { UnlistenFn } from "@tauri-apps/api/event";
@@ -19,6 +19,8 @@ import {
   type SessionInfo,
   type StreamEvent,
 } from "@/lib/api/agent";
+import { A2UIFormAPI } from "@/lib/api/a2uiForm";
+import type { A2UIFormData } from "@/components/content-creator/a2ui/types";
 import {
   Message,
   MessageImage,
@@ -183,6 +185,11 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
 
   // 话题列表
   const [topics, setTopics] = useState<Topic[]>([]);
+
+  // A2UI 表单数据缓存（按消息 ID 索引）
+  const [a2uiFormDataMap, setA2uiFormDataMap] = useState<
+    Record<string, { formId: string; formData: A2UIFormData }>
+  >({});
 
   const [isSending, setIsSending] = useState(false);
 
@@ -959,12 +966,30 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
       // 从后端加载消息历史
       const agentMessages = await getAgentSessionMessages(topicId);
       console.log("[useAgentChat] 加载到消息数量:", agentMessages.length);
-      console.log(
-        "[useAgentChat] 原始消息:",
-        JSON.stringify(agentMessages.slice(0, 2), null, 2),
-      );
+
+      // 加载 A2UI 表单数据
+      let formDataMap: Record<
+        string,
+        { formId: string; formData: A2UIFormData }
+      > = {};
+      try {
+        const forms = await A2UIFormAPI.getBySession(topicId);
+        console.log("[useAgentChat] 加载到 A2UI 表单数量:", forms.length);
+        for (const form of forms) {
+          const msgId = `${topicId}-${form.messageId}`;
+          formDataMap[msgId] = {
+            formId: form.id,
+            formData: form.formDataJson ? JSON.parse(form.formDataJson) : {},
+          };
+        }
+      } catch (formError) {
+        console.warn("[useAgentChat] 加载 A2UI 表单数据失败:", formError);
+      }
+      setA2uiFormDataMap(formDataMap);
 
       // 转换为前端 Message 格式
+      // 注意：不设置 contentParts，让 StreamingRenderer 使用回退模式
+      // 回退模式会直接解析 content 中的 A2UI 代码块
       const loadedMessages: Message[] = agentMessages.map((msg, index) => {
         // 提取文本内容
         let content = "";
@@ -980,9 +1005,12 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
             .join("\n");
         }
 
-        console.log(
-          `[useAgentChat] 消息 ${index}: role=${msg.role}, content类型=${typeof msg.content}, 内容长度=${content.length}`,
-        );
+        // 检查是否包含 A2UI 内容（用于调试）
+        if (msg.role === "assistant" && content.includes("```a2ui")) {
+          console.log(
+            `[useAgentChat] 消息 ${index} 包含 A2UI 代码块，将由 StreamingRenderer 解析`,
+          );
+        }
 
         return {
           id: `${topicId}-${index}`,
@@ -990,6 +1018,7 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
           content,
           timestamp: new Date(msg.timestamp),
           isThinking: false,
+          // 不设置 contentParts，让 StreamingRenderer 使用回退模式解析 A2UI
         };
       });
 
@@ -1475,6 +1504,44 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
     }
   };
 
+  // A2UI 表单数据保存（防抖由 A2UIRenderer 处理）
+  const saveA2UIFormData = useCallback(
+    async (formId: string, formData: A2UIFormData) => {
+      try {
+        await A2UIFormAPI.saveFormData(formId, JSON.stringify(formData));
+        console.log("[useAgentChat] A2UI 表单数据已保存:", formId);
+      } catch (error) {
+        console.error("[useAgentChat] 保存 A2UI 表单数据失败:", error);
+      }
+    },
+    [],
+  );
+
+  // A2UI 表单提交处理
+  const handleA2UISubmit = useCallback(
+    async (formData: A2UIFormData, messageId: string) => {
+      console.log("[useAgentChat] A2UI 表单提交:", messageId, formData);
+
+      // 获取或创建表单记录
+      const existingForm = a2uiFormDataMap[messageId];
+      if (existingForm) {
+        try {
+          await A2UIFormAPI.submit(
+            existingForm.formId,
+            JSON.stringify(formData),
+          );
+          toast.success("表单已提交");
+        } catch (error) {
+          console.error("[useAgentChat] 提交 A2UI 表单失败:", error);
+          toast.error("表单提交失败");
+        }
+      }
+
+      // TODO: 可以在这里触发后续的 AI 处理流程
+    },
+    [a2uiFormDataMap],
+  );
+
   return {
     processStatus,
     handleStartProcess,
@@ -1507,5 +1574,10 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
     loadTopics,
     renameTopic, // 重命名话题
     generateSmartTitle, // 智能标题生成
+
+    // A2UI 表单持久化
+    a2uiFormDataMap,
+    saveA2UIFormData,
+    handleA2UISubmit,
   };
 }

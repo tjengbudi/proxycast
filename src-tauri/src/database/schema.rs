@@ -870,6 +870,111 @@ pub fn create_tables(conn: &Connection) -> Result<(), rusqlite::Error> {
         [],
     )?;
 
+    // ============================================================================
+    // A2UI 表单数据表
+    // 存储 AI 生成的交互式表单及用户填写的数据
+    // ============================================================================
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS a2ui_forms (
+            id TEXT PRIMARY KEY,
+            message_id INTEGER NOT NULL,
+            session_id TEXT NOT NULL,
+            a2ui_response_json TEXT NOT NULL,
+            form_data_json TEXT DEFAULT '{}',
+            submitted INTEGER DEFAULT 0,
+            submitted_at TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            FOREIGN KEY (message_id) REFERENCES agent_messages(id) ON DELETE CASCADE,
+            FOREIGN KEY (session_id) REFERENCES agent_sessions(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
+    // 创建 a2ui_forms 索引
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_a2ui_forms_message ON a2ui_forms(message_id)",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_a2ui_forms_session ON a2ui_forms(session_id)",
+        [],
+    )?;
+
+    // ============================================================================
+    // 品牌人设扩展表 (BrandPersonaExtension)
+    // 存储品牌人设的海报设计专用字段，与 personas 表关联
+    // ============================================================================
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS brand_persona_extensions (
+            id TEXT PRIMARY KEY,
+            persona_id TEXT NOT NULL UNIQUE,
+            brand_tone_json TEXT NOT NULL DEFAULT '{}',
+            design_json TEXT NOT NULL DEFAULT '{}',
+            visual_json TEXT NOT NULL DEFAULT '{}',
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            FOREIGN KEY (persona_id) REFERENCES personas(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
+    // 创建 brand_persona_extensions 索引
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_brand_persona_extensions_persona_id ON brand_persona_extensions(persona_id)",
+        [],
+    )?;
+
+    // ============================================================================
+    // 海报素材元数据表 (PosterMaterialMetadata)
+    // 存储海报素材的扩展信息，与 materials 表关联
+    // ============================================================================
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS poster_material_metadata (
+            id TEXT PRIMARY KEY,
+            material_id TEXT NOT NULL UNIQUE,
+            image_category TEXT,
+            width INTEGER,
+            height INTEGER,
+            thumbnail TEXT,
+            colors_json TEXT NOT NULL DEFAULT '[]',
+            icon_style TEXT,
+            icon_category TEXT,
+            color_scheme_json TEXT,
+            mood TEXT,
+            layout_category TEXT,
+            element_count INTEGER,
+            preview TEXT,
+            fabric_json TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            FOREIGN KEY (material_id) REFERENCES materials(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
+    // 创建 poster_material_metadata 索引
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_poster_material_metadata_material_id ON poster_material_metadata(material_id)",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_poster_material_metadata_image_category ON poster_material_metadata(image_category)",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_poster_material_metadata_icon_category ON poster_material_metadata(icon_category)",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_poster_material_metadata_layout_category ON poster_material_metadata(layout_category)",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_poster_material_metadata_mood ON poster_material_metadata(mood)",
+        [],
+    )?;
+
     Ok(())
 }
 

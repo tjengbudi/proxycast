@@ -61,6 +61,7 @@ pub struct Persona {
 
 /// 创建人设请求
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CreatePersonaRequest {
     /// 所属项目 ID
     pub project_id: String,
@@ -163,6 +164,12 @@ pub enum MaterialType {
     Data,
     /// 链接
     Link,
+    /// 图标（海报扩展）
+    Icon,
+    /// 配色方案（海报扩展）
+    Color,
+    /// 布局模板（海报扩展）
+    Layout,
 }
 
 impl Default for MaterialType {
@@ -179,6 +186,9 @@ impl MaterialType {
             MaterialType::Text => "text",
             MaterialType::Data => "data",
             MaterialType::Link => "link",
+            MaterialType::Icon => "icon",
+            MaterialType::Color => "color",
+            MaterialType::Layout => "layout",
         }
     }
 
@@ -189,9 +199,253 @@ impl MaterialType {
             "text" => MaterialType::Text,
             "data" => MaterialType::Data,
             "link" => MaterialType::Link,
+            "icon" => MaterialType::Icon,
+            "color" => MaterialType::Color,
+            "layout" => MaterialType::Layout,
             _ => MaterialType::Document,
         }
     }
+
+    /// 判断是否为海报素材类型
+    pub fn is_poster_material(&self) -> bool {
+        matches!(
+            self,
+            MaterialType::Image | MaterialType::Icon | MaterialType::Color | MaterialType::Layout
+        )
+    }
+}
+
+/// 图片分类
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ImageCategory {
+    /// 背景图
+    Background,
+    /// 产品图
+    Product,
+    /// 人物图
+    Person,
+    /// 装饰图
+    Decoration,
+    /// 纹理图
+    Texture,
+    /// 其他
+    Other,
+}
+
+impl Default for ImageCategory {
+    fn default() -> Self {
+        Self::Other
+    }
+}
+
+impl ImageCategory {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ImageCategory::Background => "background",
+            ImageCategory::Product => "product",
+            ImageCategory::Person => "person",
+            ImageCategory::Decoration => "decoration",
+            ImageCategory::Texture => "texture",
+            ImageCategory::Other => "other",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "background" => ImageCategory::Background,
+            "product" => ImageCategory::Product,
+            "person" => ImageCategory::Person,
+            "decoration" => ImageCategory::Decoration,
+            "texture" => ImageCategory::Texture,
+            _ => ImageCategory::Other,
+        }
+    }
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            ImageCategory::Background => "背景",
+            ImageCategory::Product => "产品",
+            ImageCategory::Person => "人物",
+            ImageCategory::Decoration => "装饰",
+            ImageCategory::Texture => "纹理",
+            ImageCategory::Other => "其他",
+        }
+    }
+}
+
+/// 布局分类
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum LayoutCategory {
+    /// 大图型
+    HeroImage,
+    /// 文字主导
+    TextDominant,
+    /// 网格型
+    Grid,
+    /// 分割型
+    Split,
+    /// 极简型
+    Minimal,
+    /// 拼贴型
+    Collage,
+}
+
+impl Default for LayoutCategory {
+    fn default() -> Self {
+        Self::HeroImage
+    }
+}
+
+impl LayoutCategory {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            LayoutCategory::HeroImage => "hero-image",
+            LayoutCategory::TextDominant => "text-dominant",
+            LayoutCategory::Grid => "grid",
+            LayoutCategory::Split => "split",
+            LayoutCategory::Minimal => "minimal",
+            LayoutCategory::Collage => "collage",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "hero-image" => LayoutCategory::HeroImage,
+            "text-dominant" => LayoutCategory::TextDominant,
+            "grid" => LayoutCategory::Grid,
+            "split" => LayoutCategory::Split,
+            "minimal" => LayoutCategory::Minimal,
+            "collage" => LayoutCategory::Collage,
+            _ => LayoutCategory::HeroImage,
+        }
+    }
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            LayoutCategory::HeroImage => "大图型",
+            LayoutCategory::TextDominant => "文字型",
+            LayoutCategory::Grid => "网格型",
+            LayoutCategory::Split => "分割型",
+            LayoutCategory::Minimal => "极简型",
+            LayoutCategory::Collage => "拼贴型",
+        }
+    }
+}
+
+/// 海报素材元数据
+///
+/// 存储海报素材的扩展信息，与 materials 表关联。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PosterMaterialMetadata {
+    /// 关联的素材 ID
+    pub material_id: String,
+    /// 图片分类（仅 image 类型）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_category: Option<String>,
+    /// 图片宽度
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub width: Option<i32>,
+    /// 图片高度
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub height: Option<i32>,
+    /// 缩略图路径或 base64
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thumbnail: Option<String>,
+    /// 主色列表（JSON 数组）
+    #[serde(default)]
+    pub colors: Vec<String>,
+    /// 图标风格（仅 icon 类型）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_style: Option<String>,
+    /// 图标分类（仅 icon 类型）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_category: Option<String>,
+    /// 配色方案数据（仅 color 类型，JSON）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color_scheme_json: Option<String>,
+    /// 配色氛围（仅 color 类型）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mood: Option<String>,
+    /// 布局分类（仅 layout 类型）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub layout_category: Option<String>,
+    /// 布局元素数量（仅 layout 类型）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub element_count: Option<i32>,
+    /// 布局预览图
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview: Option<String>,
+    /// Fabric.js JSON（仅 layout 类型）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fabric_json: Option<String>,
+    /// 创建时间
+    pub created_at: i64,
+    /// 更新时间
+    pub updated_at: i64,
+}
+
+/// 创建海报素材元数据请求
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreatePosterMetadataRequest {
+    /// 关联的素材 ID
+    pub material_id: String,
+    /// 图片分类
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_category: Option<String>,
+    /// 图片宽度
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub width: Option<i32>,
+    /// 图片高度
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub height: Option<i32>,
+    /// 缩略图
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thumbnail: Option<String>,
+    /// 主色列表
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub colors: Option<Vec<String>>,
+    /// 图标风格
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_style: Option<String>,
+    /// 图标分类
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_category: Option<String>,
+    /// 配色方案 JSON
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color_scheme_json: Option<String>,
+    /// 配色氛围
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mood: Option<String>,
+    /// 布局分类
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub layout_category: Option<String>,
+    /// 布局元素数量
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub element_count: Option<i32>,
+    /// 布局预览图
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview: Option<String>,
+    /// Fabric.js JSON
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fabric_json: Option<String>,
+}
+
+/// 海报素材（完整视图）
+///
+/// 包含基础素材和海报扩展元数据的完整数据。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PosterMaterial {
+    /// 基础素材
+    #[serde(flatten)]
+    pub base: Material,
+    /// 海报元数据
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<PosterMaterialMetadata>,
 }
 
 /// 素材
@@ -233,6 +487,7 @@ pub struct Material {
 
 /// 上传素材请求
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UploadMaterialRequest {
     /// 所属项目 ID
     pub project_id: String,
@@ -271,6 +526,7 @@ pub struct MaterialUpdate {
 
 /// 素材筛选条件
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct MaterialFilter {
     /// 按类型筛选
     #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
@@ -427,6 +683,7 @@ pub struct Template {
 
 /// 创建模板请求
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateTemplateRequest {
     /// 所属项目 ID
     pub project_id: String,
@@ -534,6 +791,466 @@ pub struct ProjectContext {
 }
 
 // ============================================================================
+// 品牌人设扩展类型
+// ============================================================================
+
+/// 品牌个性类型
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum BrandPersonality {
+    /// 专业严谨
+    Professional,
+    /// 亲切友好
+    Friendly,
+    /// 活泼有趣
+    Playful,
+    /// 奢华高端
+    Luxurious,
+    /// 简约克制
+    Minimalist,
+    /// 大胆张扬
+    Bold,
+    /// 优雅精致
+    Elegant,
+}
+
+impl Default for BrandPersonality {
+    fn default() -> Self {
+        Self::Professional
+    }
+}
+
+impl BrandPersonality {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            BrandPersonality::Professional => "professional",
+            BrandPersonality::Friendly => "friendly",
+            BrandPersonality::Playful => "playful",
+            BrandPersonality::Luxurious => "luxurious",
+            BrandPersonality::Minimalist => "minimalist",
+            BrandPersonality::Bold => "bold",
+            BrandPersonality::Elegant => "elegant",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "professional" => BrandPersonality::Professional,
+            "friendly" => BrandPersonality::Friendly,
+            "playful" => BrandPersonality::Playful,
+            "luxurious" => BrandPersonality::Luxurious,
+            "minimalist" => BrandPersonality::Minimalist,
+            "bold" => BrandPersonality::Bold,
+            "elegant" => BrandPersonality::Elegant,
+            _ => BrandPersonality::Professional,
+        }
+    }
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            BrandPersonality::Professional => "专业严谨",
+            BrandPersonality::Friendly => "亲切友好",
+            BrandPersonality::Playful => "活泼有趣",
+            BrandPersonality::Luxurious => "奢华高端",
+            BrandPersonality::Minimalist => "简约克制",
+            BrandPersonality::Bold => "大胆张扬",
+            BrandPersonality::Elegant => "优雅精致",
+        }
+    }
+}
+
+/// 设计风格类型
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum DesignStyle {
+    /// 极简
+    Minimal,
+    /// 现代
+    Modern,
+    /// 经典
+    Classic,
+    /// 活泼
+    Playful,
+    /// 商务
+    Corporate,
+    /// 艺术
+    Artistic,
+    /// 复古
+    Retro,
+}
+
+impl Default for DesignStyle {
+    fn default() -> Self {
+        Self::Modern
+    }
+}
+
+impl DesignStyle {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            DesignStyle::Minimal => "minimal",
+            DesignStyle::Modern => "modern",
+            DesignStyle::Classic => "classic",
+            DesignStyle::Playful => "playful",
+            DesignStyle::Corporate => "corporate",
+            DesignStyle::Artistic => "artistic",
+            DesignStyle::Retro => "retro",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "minimal" => DesignStyle::Minimal,
+            "modern" => DesignStyle::Modern,
+            "classic" => DesignStyle::Classic,
+            "playful" => DesignStyle::Playful,
+            "corporate" => DesignStyle::Corporate,
+            "artistic" => DesignStyle::Artistic,
+            "retro" => DesignStyle::Retro,
+            _ => DesignStyle::Modern,
+        }
+    }
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            DesignStyle::Minimal => "极简",
+            DesignStyle::Modern => "现代",
+            DesignStyle::Classic => "经典",
+            DesignStyle::Playful => "活泼",
+            DesignStyle::Corporate => "商务",
+            DesignStyle::Artistic => "艺术",
+            DesignStyle::Retro => "复古",
+        }
+    }
+}
+
+/// 配色方案
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ColorScheme {
+    /// 主色
+    pub primary: String,
+    /// 辅色
+    pub secondary: String,
+    /// 强调色
+    pub accent: String,
+    /// 背景色
+    pub background: String,
+    /// 文字色
+    pub text: String,
+    /// 次要文字色
+    pub text_secondary: String,
+    /// 渐变配置
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gradients: Option<Vec<GradientConfig>>,
+}
+
+impl Default for ColorScheme {
+    fn default() -> Self {
+        Self {
+            primary: "#2196F3".to_string(),
+            secondary: "#90CAF9".to_string(),
+            accent: "#1976D2".to_string(),
+            background: "#FFFFFF".to_string(),
+            text: "#212121".to_string(),
+            text_secondary: "#757575".to_string(),
+            gradients: None,
+        }
+    }
+}
+
+/// 渐变配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GradientConfig {
+    /// 渐变名称
+    pub name: String,
+    /// 渐变颜色列表
+    pub colors: Vec<String>,
+    /// 渐变方向（角度）
+    pub direction: i32,
+}
+
+/// 字体方案
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Typography {
+    /// 标题字体
+    pub title_font: String,
+    /// 标题字重
+    pub title_weight: i32,
+    /// 正文字体
+    pub body_font: String,
+    /// 正文字重
+    pub body_weight: i32,
+    /// 标题字号基准
+    pub title_size: i32,
+    /// 正文字号基准
+    pub body_size: i32,
+    /// 行高
+    pub line_height: f32,
+    /// 字间距
+    pub letter_spacing: f32,
+}
+
+impl Default for Typography {
+    fn default() -> Self {
+        Self {
+            title_font: "思源黑体".to_string(),
+            title_weight: 700,
+            body_font: "苹方".to_string(),
+            body_weight: 400,
+            title_size: 72,
+            body_size: 24,
+            line_height: 1.5,
+            letter_spacing: 0.0,
+        }
+    }
+}
+
+/// Logo 位置配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LogoPlacement {
+    /// 默认位置
+    pub default_position: String,
+    /// 内边距
+    pub padding: i32,
+    /// 最大尺寸（百分比）
+    pub max_size: i32,
+}
+
+impl Default for LogoPlacement {
+    fn default() -> Self {
+        Self {
+            default_position: "top-left".to_string(),
+            padding: 20,
+            max_size: 15,
+        }
+    }
+}
+
+/// 图片风格配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageStyle {
+    /// CSS 滤镜
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filter: Option<String>,
+    /// 圆角
+    pub border_radius: i32,
+    /// 阴影
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shadow: Option<String>,
+    /// 偏好比例
+    pub preferred_ratio: String,
+}
+
+impl Default for ImageStyle {
+    fn default() -> Self {
+        Self {
+            filter: None,
+            border_radius: 8,
+            shadow: None,
+            preferred_ratio: "3:4".to_string(),
+        }
+    }
+}
+
+/// 图标风格配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IconStyle {
+    /// 风格类型
+    pub style: String,
+    /// 描边宽度
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stroke_width: Option<i32>,
+    /// 默认颜色
+    pub default_color: String,
+}
+
+impl Default for IconStyle {
+    fn default() -> Self {
+        Self {
+            style: "outlined".to_string(),
+            stroke_width: Some(2),
+            default_color: "#333333".to_string(),
+        }
+    }
+}
+
+/// 品牌调性配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrandTone {
+    /// 品牌关键词
+    #[serde(default)]
+    pub keywords: Vec<String>,
+    /// 品牌个性
+    pub personality: String,
+    /// 品牌语调
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub voice_tone: Option<String>,
+    /// 目标受众描述
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_audience: Option<String>,
+}
+
+impl Default for BrandTone {
+    fn default() -> Self {
+        Self {
+            keywords: vec![],
+            personality: "professional".to_string(),
+            voice_tone: None,
+            target_audience: None,
+        }
+    }
+}
+
+/// 设计配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesignConfig {
+    /// 主风格
+    pub primary_style: String,
+    /// 配色方案
+    pub color_scheme: ColorScheme,
+    /// 字体方案
+    pub typography: Typography,
+}
+
+impl Default for DesignConfig {
+    fn default() -> Self {
+        Self {
+            primary_style: "modern".to_string(),
+            color_scheme: ColorScheme::default(),
+            typography: Typography::default(),
+        }
+    }
+}
+
+/// 视觉规范配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VisualConfig {
+    /// Logo 图片 URL
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub logo_url: Option<String>,
+    /// Logo 位置配置
+    pub logo_placement: LogoPlacement,
+    /// 图片风格
+    pub image_style: ImageStyle,
+    /// 图标风格
+    pub icon_style: IconStyle,
+    /// 装饰元素列表
+    #[serde(default)]
+    pub decorations: Vec<String>,
+}
+
+impl Default for VisualConfig {
+    fn default() -> Self {
+        Self {
+            logo_url: None,
+            logo_placement: LogoPlacement::default(),
+            image_style: ImageStyle::default(),
+            icon_style: IconStyle::default(),
+            decorations: vec![],
+        }
+    }
+}
+
+/// 品牌人设扩展
+///
+/// 存储品牌人设的海报设计专用字段，与基础 Persona 关联。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrandPersonaExtension {
+    /// 关联的人设 ID
+    pub persona_id: String,
+    /// 品牌调性
+    pub brand_tone: BrandTone,
+    /// 设计配置
+    pub design: DesignConfig,
+    /// 视觉规范
+    pub visual: VisualConfig,
+    /// 创建时间
+    pub created_at: i64,
+    /// 更新时间
+    pub updated_at: i64,
+}
+
+/// 创建品牌人设扩展请求
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateBrandExtensionRequest {
+    /// 关联的人设 ID
+    pub persona_id: String,
+    /// 品牌调性
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub brand_tone: Option<BrandTone>,
+    /// 设计配置
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub design: Option<DesignConfig>,
+    /// 视觉规范
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visual: Option<VisualConfig>,
+}
+
+/// 更新品牌人设扩展请求
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateBrandExtensionRequest {
+    /// 品牌调性
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub brand_tone: Option<BrandTone>,
+    /// 设计配置
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub design: Option<DesignConfig>,
+    /// 视觉规范
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visual: Option<VisualConfig>,
+}
+
+/// 品牌人设（完整视图）
+///
+/// 包含基础人设和品牌扩展的完整数据。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrandPersona {
+    /// 基础人设
+    #[serde(flatten)]
+    pub base: Persona,
+    /// 品牌调性
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub brand_tone: Option<BrandTone>,
+    /// 设计配置
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub design: Option<DesignConfig>,
+    /// 视觉规范
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visual: Option<VisualConfig>,
+}
+
+/// 品牌人设模板
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrandPersonaTemplate {
+    /// 模板 ID
+    pub id: String,
+    /// 模板名称
+    pub name: String,
+    /// 模板描述
+    pub description: String,
+    /// 品牌调性
+    pub brand_tone: BrandTone,
+    /// 设计配置
+    pub design: DesignConfig,
+    /// 视觉规范
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visual: Option<VisualConfig>,
+}
+
+// ============================================================================
 // 测试
 // ============================================================================
 
@@ -548,10 +1265,65 @@ mod tests {
         assert_eq!(MaterialType::Text.as_str(), "text");
         assert_eq!(MaterialType::Data.as_str(), "data");
         assert_eq!(MaterialType::Link.as_str(), "link");
+        assert_eq!(MaterialType::Icon.as_str(), "icon");
+        assert_eq!(MaterialType::Color.as_str(), "color");
+        assert_eq!(MaterialType::Layout.as_str(), "layout");
 
         assert_eq!(MaterialType::from_str("document"), MaterialType::Document);
         assert_eq!(MaterialType::from_str("IMAGE"), MaterialType::Image);
+        assert_eq!(MaterialType::from_str("icon"), MaterialType::Icon);
+        assert_eq!(MaterialType::from_str("color"), MaterialType::Color);
+        assert_eq!(MaterialType::from_str("layout"), MaterialType::Layout);
         assert_eq!(MaterialType::from_str("unknown"), MaterialType::Document);
+    }
+
+    #[test]
+    fn test_material_type_is_poster_material() {
+        assert!(MaterialType::Image.is_poster_material());
+        assert!(MaterialType::Icon.is_poster_material());
+        assert!(MaterialType::Color.is_poster_material());
+        assert!(MaterialType::Layout.is_poster_material());
+        assert!(!MaterialType::Document.is_poster_material());
+        assert!(!MaterialType::Text.is_poster_material());
+        assert!(!MaterialType::Data.is_poster_material());
+        assert!(!MaterialType::Link.is_poster_material());
+    }
+
+    #[test]
+    fn test_image_category_conversion() {
+        assert_eq!(ImageCategory::Background.as_str(), "background");
+        assert_eq!(ImageCategory::Product.as_str(), "product");
+        assert_eq!(ImageCategory::Person.as_str(), "person");
+
+        assert_eq!(
+            ImageCategory::from_str("background"),
+            ImageCategory::Background
+        );
+        assert_eq!(ImageCategory::from_str("PRODUCT"), ImageCategory::Product);
+        assert_eq!(ImageCategory::from_str("unknown"), ImageCategory::Other);
+
+        assert_eq!(ImageCategory::Background.display_name(), "背景");
+        assert_eq!(ImageCategory::Product.display_name(), "产品");
+    }
+
+    #[test]
+    fn test_layout_category_conversion() {
+        assert_eq!(LayoutCategory::HeroImage.as_str(), "hero-image");
+        assert_eq!(LayoutCategory::TextDominant.as_str(), "text-dominant");
+        assert_eq!(LayoutCategory::Grid.as_str(), "grid");
+
+        assert_eq!(
+            LayoutCategory::from_str("hero-image"),
+            LayoutCategory::HeroImage
+        );
+        assert_eq!(LayoutCategory::from_str("grid"), LayoutCategory::Grid);
+        assert_eq!(
+            LayoutCategory::from_str("unknown"),
+            LayoutCategory::HeroImage
+        );
+
+        assert_eq!(LayoutCategory::HeroImage.display_name(), "大图型");
+        assert_eq!(LayoutCategory::Grid.display_name(), "网格型");
     }
 
     #[test]
@@ -702,5 +1474,96 @@ mod tests {
         assert_eq!(MaterialType::default(), MaterialType::Document);
         assert_eq!(Platform::default(), Platform::Markdown);
         assert_eq!(EmojiUsage::default(), EmojiUsage::Moderate);
+    }
+
+    #[test]
+    fn test_brand_personality_conversion() {
+        assert_eq!(BrandPersonality::Professional.as_str(), "professional");
+        assert_eq!(BrandPersonality::Friendly.as_str(), "friendly");
+        assert_eq!(BrandPersonality::Playful.as_str(), "playful");
+
+        assert_eq!(
+            BrandPersonality::from_str("professional"),
+            BrandPersonality::Professional
+        );
+        assert_eq!(
+            BrandPersonality::from_str("FRIENDLY"),
+            BrandPersonality::Friendly
+        );
+        assert_eq!(
+            BrandPersonality::from_str("unknown"),
+            BrandPersonality::Professional
+        );
+    }
+
+    #[test]
+    fn test_brand_personality_display_name() {
+        assert_eq!(BrandPersonality::Professional.display_name(), "专业严谨");
+        assert_eq!(BrandPersonality::Friendly.display_name(), "亲切友好");
+        assert_eq!(BrandPersonality::Luxurious.display_name(), "奢华高端");
+    }
+
+    #[test]
+    fn test_design_style_conversion() {
+        assert_eq!(DesignStyle::Minimal.as_str(), "minimal");
+        assert_eq!(DesignStyle::Modern.as_str(), "modern");
+        assert_eq!(DesignStyle::Corporate.as_str(), "corporate");
+
+        assert_eq!(DesignStyle::from_str("minimal"), DesignStyle::Minimal);
+        assert_eq!(DesignStyle::from_str("MODERN"), DesignStyle::Modern);
+        assert_eq!(DesignStyle::from_str("unknown"), DesignStyle::Modern);
+    }
+
+    #[test]
+    fn test_color_scheme_serialization() {
+        let scheme = ColorScheme::default();
+        let json = serde_json::to_string(&scheme).unwrap();
+        let parsed: ColorScheme = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.primary, "#2196F3");
+        assert_eq!(parsed.background, "#FFFFFF");
+    }
+
+    #[test]
+    fn test_typography_serialization() {
+        let typography = Typography::default();
+        let json = serde_json::to_string(&typography).unwrap();
+        let parsed: Typography = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.title_font, "思源黑体");
+        assert_eq!(parsed.title_weight, 700);
+        assert_eq!(parsed.body_font, "苹方");
+    }
+
+    #[test]
+    fn test_brand_persona_extension_serialization() {
+        let extension = BrandPersonaExtension {
+            persona_id: "persona-1".to_string(),
+            brand_tone: BrandTone::default(),
+            design: DesignConfig::default(),
+            visual: VisualConfig::default(),
+            created_at: 1234567890,
+            updated_at: 1234567890,
+        };
+
+        let json = serde_json::to_string(&extension).unwrap();
+        let parsed: BrandPersonaExtension = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.persona_id, "persona-1");
+        assert_eq!(parsed.brand_tone.personality, "professional");
+        assert_eq!(parsed.design.primary_style, "modern");
+    }
+
+    #[test]
+    fn test_brand_defaults() {
+        assert_eq!(BrandPersonality::default(), BrandPersonality::Professional);
+        assert_eq!(DesignStyle::default(), DesignStyle::Modern);
+
+        let color_scheme = ColorScheme::default();
+        assert_eq!(color_scheme.primary, "#2196F3");
+
+        let typography = Typography::default();
+        assert_eq!(typography.title_size, 72);
+        assert_eq!(typography.body_size, 24);
     }
 }

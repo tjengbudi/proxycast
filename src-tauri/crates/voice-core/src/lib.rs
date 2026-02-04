@@ -7,11 +7,13 @@ pub mod asr_client;
 pub mod error;
 pub mod output;
 pub mod recorder;
+#[cfg(feature = "local-whisper")]
 pub mod transcriber;
 pub mod types;
 
 pub use error::{Result, VoiceError};
 pub use output::OutputHandler;
 pub use recorder::AudioRecorder;
+#[cfg(feature = "local-whisper")]
 pub use transcriber::WhisperTranscriber;
 pub use types::*;

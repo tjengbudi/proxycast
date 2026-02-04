@@ -116,8 +116,10 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CARGO_PROFILE_RELEASE_LTO: thin
-          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 16
+          # 禁用 LTO 加速编译（正式发布可改为 thin）
+          CARGO_PROFILE_RELEASE_LTO: "off"
+          # 增加并行编译单元
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 32
           CARGO_INCREMENTAL: 0
           SCCACHE_GHA_ENABLED: "true"
           RUSTC_WRAPPER: sccache
@@ -147,6 +149,7 @@ jobs:
             - **API Key**: 首次启动自动生成，可在设置页查看/修改
           releaseDraft: false
           prerelease: false
+          # 默认不启用 voice feature（包含 whisper-rs，编译很慢）
           args: --target ${{ matrix.target }}
 
       - name: Build Tauri app (macOS/Windows)
@@ -154,8 +157,10 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CARGO_PROFILE_RELEASE_LTO: thin
-          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 16
+          # 禁用 LTO 加速编译（正式发布可改为 thin）
+          CARGO_PROFILE_RELEASE_LTO: "off"
+          # 增加并行编译单元
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 32
           CARGO_INCREMENTAL: 0
           SCCACHE_GHA_ENABLED: "true"
           RUSTC_WRAPPER: sccache
@@ -192,29 +197,12 @@ jobs:
             - **API Key**: 首次启动自动生成，可在设置页查看/修改
           releaseDraft: false
           prerelease: false
+          # 默认不启用 voice feature（包含 whisper-rs，编译很慢）
           args: --target ${{ matrix.target }}
 
-      # 构建后清理，节省缓存空间
-      - name: Post-build cleanup (Unix)
-        if: matrix.platform != 'windows-latest'
-        run: |
-          rm -rf src-tauri/target/release/deps || true
-          rm -rf src-tauri/target/release/build || true
-          rm -rf src-tauri/target/release/incremental || true
-          rm -rf src-tauri/target/${{ matrix.target }}/release/deps || true
-          rm -rf src-tauri/target/${{ matrix.target }}/release/build || true
-          rm -rf src-tauri/target/${{ matrix.target }}/release/incremental || true
-
-      - name: Post-build cleanup (Windows)
-        if: matrix.platform == 'windows-latest'
-        shell: pwsh
-        run: |
-          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue src-tauri/target/release/deps
-          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue src-tauri/target/release/build
-          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue src-tauri/target/release/incremental
-          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue src-tauri/target/${{ matrix.target }}/release/deps
-          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue src-tauri/target/${{ matrix.target }}/release/build
-          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue src-tauri/target/${{ matrix.target }}/release/incremental
+      # 注意：移除了 Post-build cleanup 步骤
+      # 之前的清理会删除 deps/build/incremental 目录，导致缓存无法复用
+      # 保留这些文件可以让 rust-cache 更好地工作
 
       - name: Show sccache stats
         run: sccache --show-stats

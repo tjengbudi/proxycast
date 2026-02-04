@@ -14,7 +14,15 @@
 /**
  * 素材类型枚举
  */
-export type MaterialType = "document" | "image" | "text" | "data" | "link";
+export type MaterialType =
+  | "document"
+  | "image"
+  | "text"
+  | "data"
+  | "link"
+  | "icon"
+  | "color"
+  | "layout";
 
 /**
  * 素材类型显示名称映射
@@ -25,6 +33,9 @@ export const MaterialTypeLabels: Record<MaterialType, string> = {
   text: "文本",
   data: "数据",
   link: "链接",
+  icon: "图标",
+  color: "配色",
+  layout: "布局",
 };
 
 /**

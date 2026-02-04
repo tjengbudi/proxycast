@@ -332,6 +332,12 @@ interface StreamingRendererProps {
   actionRequests?: ActionRequired[];
   /** A2UI 表单提交回调 */
   onA2UISubmit?: (formData: A2UIFormData) => void;
+  /** A2UI 表单 ID（用于持久化） */
+  a2uiFormId?: string;
+  /** A2UI 初始表单数据（从数据库加载） */
+  a2uiInitialFormData?: A2UIFormData;
+  /** A2UI 表单数据变化回调（用于持久化） */
+  onA2UIFormChange?: (formId: string, formData: A2UIFormData) => void;
   /** 文件写入回调 */
   onWriteFile?: (content: string, fileName: string) => void;
   /** 文件点击回调 */
@@ -364,6 +370,9 @@ export const StreamingRenderer: React.FC<StreamingRendererProps> = memo(
     contentParts,
     actionRequests,
     onA2UISubmit,
+    a2uiFormId,
+    a2uiInitialFormData,
+    onA2UIFormChange,
     onWriteFile,
     onFileClick,
     onPermissionResponse,
@@ -624,6 +633,9 @@ export const StreamingRenderer: React.FC<StreamingRendererProps> = memo(
                   key={`a2ui-${index}`}
                   response={part.content}
                   onSubmit={onA2UISubmit}
+                  formId={a2uiFormId}
+                  initialFormData={a2uiInitialFormData}
+                  onFormChange={onA2UIFormChange}
                   className="my-3"
                 />
               );

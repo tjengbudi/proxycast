@@ -4,6 +4,8 @@
 //! - 创建、获取、列表、更新、删除人设
 //! - 设置项目默认人设
 //! - 获取人设模板列表
+//! - AI 一键生成人设
+//! - 品牌人设扩展管理
 //!
 //! ## 相关需求
 //! - Requirements 6.1: 人设列表显示
@@ -12,11 +14,16 @@
 //! - Requirements 6.4: 设置默认人设
 //! - Requirements 6.5: 人设模板
 //! - Requirements 6.6: 人设删除确认
+//! - Requirements 6.7: AI 一键生成人设
 
+use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::database::DbConnection;
-use crate::models::project_model::{CreatePersonaRequest, Persona, PersonaTemplate, PersonaUpdate};
+use crate::models::project_model::{
+    BrandPersona, BrandPersonaExtension, BrandPersonaTemplate, CreateBrandExtensionRequest,
+    CreatePersonaRequest, Persona, PersonaTemplate, PersonaUpdate, UpdateBrandExtensionRequest,
+};
 use crate::services::persona_service::PersonaService;
 
 // ============================================================================
@@ -173,28 +180,21 @@ pub async fn delete_persona(db: State<'_, DbConnection>, id: String) -> Result<(
 ///
 /// # 参数
 /// - `db`: 数据库连接状态
-/// - `project_id`: 项目 ID
-/// - `persona_id`: 要设为默认的人设 ID
+/// - `projectId`: 项目 ID
+/// - `personaId`: 要设为默认的人设 ID
 ///
 /// # 返回
 /// - 成功返回 ()
 /// - 失败返回错误信息
-///
-/// # 示例（前端调用）
-/// ```typescript
-/// await invoke('set_default_persona', {
-///   projectId: 'project-1',
-///   personaId: 'persona-1'
-/// });
-/// ```
 #[tauri::command]
+#[allow(non_snake_case)]
 pub async fn set_default_persona(
     db: State<'_, DbConnection>,
-    project_id: String,
-    persona_id: String,
+    projectId: String,
+    personaId: String,
 ) -> Result<(), String> {
     let conn = db.lock().map_err(|e| format!("数据库锁定失败: {e}"))?;
-    PersonaService::set_default_persona(&conn, &project_id, &persona_id).map_err(|e| e.to_string())
+    PersonaService::set_default_persona(&conn, &projectId, &personaId).map_err(|e| e.to_string())
 }
 
 /// 获取人设模板列表
@@ -239,4 +239,350 @@ pub async fn get_default_persona(
 ) -> Result<Option<Persona>, String> {
     let conn = db.lock().map_err(|e| format!("数据库锁定失败: {e}"))?;
     PersonaService::get_default_persona(&conn, &project_id).map_err(|e| e.to_string())
+}
+
+// ============================================================================
+// AI 生成人设
+// ============================================================================
+
+/// AI 生成的人设结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GeneratedPersona {
+    /// 人设名称
+    pub name: String,
+    /// 人设描述
+    pub description: String,
+    /// 写作风格
+    pub style: String,
+    /// 语气
+    pub tone: String,
+    /// 目标受众
+    pub target_audience: String,
+    /// 禁用词列表
+    pub forbidden_words: Vec<String>,
+    /// 偏好词列表
+    pub preferred_words: Vec<String>,
+}
+
+/// AI 一键生成人设
+///
+/// 根据用户提供的简单描述，调用 AI 生成完整的人设配置。
+/// 自动从凭证池选择可用凭证进行调用。
+///
+/// # 参数
+/// - `prompt`: 用户描述，例如"一个幽默风趣的科技博主"
+///
+/// # 返回
+/// - 成功返回生成的人设配置
+/// - 失败返回错误信息
+#[tauri::command]
+pub async fn generate_persona(
+    agent_state: State<'_, crate::agent::AsterAgentState>,
+    db: State<'_, DbConnection>,
+    prompt: String,
+) -> Result<GeneratedPersona, String> {
+    use aster::conversation::message::Message;
+    use futures::StreamExt;
+
+    tracing::info!("[Persona] AI 生成人设: prompt={}", prompt);
+
+    // 确保 Agent 已初始化
+    if !agent_state.is_initialized().await {
+        agent_state.init_agent_with_db(&db).await?;
+    }
+
+    // 创建临时会话 ID
+    let session_id = format!("persona-gen-{}", uuid::Uuid::new_v4());
+
+    // 如果 Provider 未配置，自动从凭证池选择一个
+    if !agent_state.is_provider_configured().await {
+        tracing::info!("[Persona] Provider 未配置，尝试从凭证池自动选择");
+
+        // 尝试按优先级选择 Provider: deepseek > openai > anthropic > kiro
+        let provider_types = ["deepseek", "openai", "anthropic", "kiro"];
+        let default_models = [
+            "deepseek-chat",
+            "gpt-4o-mini",
+            "claude-3-haiku-20240307",
+            "anthropic.claude-3-haiku-20240307-v1:0",
+        ];
+
+        let mut configured = false;
+        for (provider_type, model) in provider_types.iter().zip(default_models.iter()) {
+            match agent_state
+                .configure_provider_from_pool(&db, provider_type, model, &session_id)
+                .await
+            {
+                Ok(_) => {
+                    tracing::info!(
+                        "[Persona] 自动配置 Provider 成功: {} / {}",
+                        provider_type,
+                        model
+                    );
+                    configured = true;
+                    break;
+                }
+                Err(e) => {
+                    tracing::debug!(
+                        "[Persona] 尝试 {} 失败: {}, 继续尝试下一个",
+                        provider_type,
+                        e
+                    );
+                }
+            }
+        }
+
+        if !configured {
+            return Err("没有可用的 AI 凭证，请先在设置中添加凭证".to_string());
+        }
+    }
+
+    let system_prompt = r#"你是一个专业的内容创作人设设计师。根据用户的描述，生成一个完整的创作人设配置。
+
+请严格按照以下 JSON 格式返回（不要包含任何其他文字，不要使用 markdown 代码块）：
+{"name":"人设名称","description":"人设描述（50字以内）","style":"写作风格","tone":"语气","targetAudience":"目标受众","forbiddenWords":["禁用词1","禁用词2"],"preferredWords":["偏好词1","偏好词2"]}
+
+注意：
+1. 名称要有特色，能体现人设特点
+2. 禁用词是创作时应避免的词汇
+3. 偏好词是创作时优先使用的词汇
+4. 直接返回 JSON，不要任何额外文字"#;
+
+    let user_prompt = format!("{}\n\n请为以下描述生成人设配置：{}", system_prompt, prompt);
+
+    let cancel_token = agent_state.create_cancel_token(&session_id).await;
+
+    let user_message = Message::user().with_text(&user_prompt);
+    let session_config = crate::agent::aster_state::SessionConfigBuilder::new(&session_id).build();
+
+    // 获取 Agent 引用
+    let agent_arc = agent_state.get_agent_arc();
+    let guard = agent_arc.read().await;
+    let agent = guard.as_ref().ok_or("Agent 未初始化")?;
+
+    // 调用 Agent
+    let stream_result = agent
+        .reply(user_message, session_config, Some(cancel_token.clone()))
+        .await;
+
+    let mut full_content = String::new();
+
+    match stream_result {
+        Ok(mut stream) => {
+            while let Some(event_result) = stream.next().await {
+                match event_result {
+                    Ok(agent_event) => {
+                        // 提取文本内容
+                        if let aster::agents::AgentEvent::Message(message) = agent_event {
+                            for content in &message.content {
+                                if let aster::conversation::message::MessageContent::Text(
+                                    text_content,
+                                ) = content
+                                {
+                                    full_content.push_str(&text_content.text);
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("[Persona] 流错误: {}", e);
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            agent_state.remove_cancel_token(&session_id).await;
+            return Err(format!("AI 调用失败: {e}"));
+        }
+    }
+
+    // 清理取消令牌
+    agent_state.remove_cancel_token(&session_id).await;
+
+    if full_content.is_empty() {
+        return Err("AI 返回空内容".to_string());
+    }
+
+    tracing::debug!("[Persona] AI 返回内容: {}", full_content);
+
+    // 解析 AI 返回的 JSON
+    let persona: GeneratedPersona = parse_persona_json(&full_content)?;
+
+    tracing::info!("[Persona] AI 生成人设成功: name={}", persona.name);
+
+    Ok(persona)
+}
+
+/// 解析 AI 返回的人设 JSON
+fn parse_persona_json(content: &str) -> Result<GeneratedPersona, String> {
+    // 尝试提取 JSON 部分（AI 可能返回额外文字）
+    let json_str = extract_json(content);
+
+    serde_json::from_str(&json_str).map_err(|e| {
+        tracing::error!("[Persona] JSON 解析失败: {}, content: {}", e, content);
+        format!("解析人设配置失败: {e}")
+    })
+}
+
+/// 从文本中提取 JSON
+fn extract_json(content: &str) -> String {
+    // 查找 JSON 对象的开始和结束
+    if let Some(start) = content.find('{') {
+        if let Some(end) = content.rfind('}') {
+            if end > start {
+                return content[start..=end].to_string();
+            }
+        }
+    }
+    content.to_string()
+}
+
+// ============================================================================
+// 品牌人设扩展命令
+// ============================================================================
+
+/// 获取品牌人设（基础人设 + 扩展）
+///
+/// 获取完整的品牌人设信息，包括基础人设和品牌扩展字段。
+///
+/// # 参数
+/// - `db`: 数据库连接状态
+/// - `persona_id`: 人设 ID
+///
+/// # 返回
+/// - 成功返回 Option<BrandPersona>
+/// - 失败返回错误信息
+///
+/// # 示例（前端调用）
+/// ```typescript
+/// const brandPersona = await invoke('get_brand_persona', {
+///   personaId: 'persona-1'
+/// });
+/// ```
+#[tauri::command]
+pub async fn get_brand_persona(
+    db: State<'_, DbConnection>,
+    persona_id: String,
+) -> Result<Option<BrandPersona>, String> {
+    let conn = db.lock().map_err(|e| format!("数据库锁定失败: {e}"))?;
+    PersonaService::get_brand_persona(&conn, &persona_id).map_err(|e| e.to_string())
+}
+
+/// 获取品牌人设扩展
+///
+/// 仅获取品牌扩展字段，不包括基础人设。
+///
+/// # 参数
+/// - `db`: 数据库连接状态
+/// - `persona_id`: 人设 ID
+///
+/// # 返回
+/// - 成功返回 Option<BrandPersonaExtension>
+/// - 失败返回错误信息
+#[tauri::command]
+pub async fn get_brand_extension(
+    db: State<'_, DbConnection>,
+    persona_id: String,
+) -> Result<Option<BrandPersonaExtension>, String> {
+    let conn = db.lock().map_err(|e| format!("数据库锁定失败: {e}"))?;
+    PersonaService::get_brand_extension(&conn, &persona_id).map_err(|e| e.to_string())
+}
+
+/// 保存品牌人设扩展
+///
+/// 创建或更新品牌人设扩展。如果扩展不存在则创建，存在则更新。
+///
+/// # 参数
+/// - `db`: 数据库连接状态
+/// - `req`: 创建/更新请求
+///
+/// # 返回
+/// - 成功返回保存后的扩展
+/// - 失败返回错误信息
+///
+/// # 示例（前端调用）
+/// ```typescript
+/// const extension = await invoke('save_brand_extension', {
+///   req: {
+///     personaId: 'persona-1',
+///     brandTone: {
+///       keywords: ['专业', '可信赖'],
+///       personality: 'professional',
+///       voiceTone: '专业但不冷漠',
+///     },
+///     design: {
+///       primaryStyle: 'modern',
+///       colorScheme: { ... },
+///       typography: { ... },
+///     },
+///   }
+/// });
+/// ```
+#[tauri::command]
+pub async fn save_brand_extension(
+    db: State<'_, DbConnection>,
+    req: CreateBrandExtensionRequest,
+) -> Result<BrandPersonaExtension, String> {
+    let conn = db.lock().map_err(|e| format!("数据库锁定失败: {e}"))?;
+    PersonaService::save_brand_extension(&conn, req).map_err(|e| e.to_string())
+}
+
+/// 更新品牌人设扩展
+///
+/// 更新已存在的品牌人设扩展。
+///
+/// # 参数
+/// - `db`: 数据库连接状态
+/// - `persona_id`: 人设 ID
+/// - `update`: 更新内容
+///
+/// # 返回
+/// - 成功返回更新后的扩展
+/// - 失败返回错误信息
+#[tauri::command]
+pub async fn update_brand_extension(
+    db: State<'_, DbConnection>,
+    persona_id: String,
+    update: UpdateBrandExtensionRequest,
+) -> Result<BrandPersonaExtension, String> {
+    let conn = db.lock().map_err(|e| format!("数据库锁定失败: {e}"))?;
+    PersonaService::update_brand_extension(&conn, &persona_id, update).map_err(|e| e.to_string())
+}
+
+/// 删除品牌人设扩展
+///
+/// 删除指定人设的品牌扩展，不影响基础人设。
+///
+/// # 参数
+/// - `db`: 数据库连接状态
+/// - `persona_id`: 人设 ID
+///
+/// # 返回
+/// - 成功返回 ()
+/// - 失败返回错误信息
+#[tauri::command]
+pub async fn delete_brand_extension(
+    db: State<'_, DbConnection>,
+    persona_id: String,
+) -> Result<(), String> {
+    let conn = db.lock().map_err(|e| format!("数据库锁定失败: {e}"))?;
+    PersonaService::delete_brand_extension(&conn, &persona_id).map_err(|e| e.to_string())
+}
+
+/// 获取品牌人设模板列表
+///
+/// 获取预定义的品牌人设模板，用于快速创建品牌人设。
+/// 模板包含电商促销、品牌形象、社交媒体、活动宣传等场景。
+///
+/// # 返回
+/// - 品牌人设模板列表
+///
+/// # 示例（前端调用）
+/// ```typescript
+/// const templates = await invoke('list_brand_persona_templates');
+/// ```
+#[tauri::command]
+pub async fn list_brand_persona_templates() -> Result<Vec<BrandPersonaTemplate>, String> {
+    Ok(PersonaService::list_brand_persona_templates())
 }

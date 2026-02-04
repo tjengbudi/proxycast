@@ -3,7 +3,7 @@ members = ["crates/*"]
 resolver = "2"
 
 [workspace.package]
-version = "0.56.0"
+version = "0.57.0"
 edition = "2021"
 authors = ["you"]
 repository = "https://github.com/aiclientproxy/proxycast"
@@ -164,7 +164,7 @@ version = "2.4"
 
 [package]
 name = "proxycast"
-version = "0.56.0"
+version = "0.57.0"
 description = "AI API Proxy Desktop App"
 authors = ["you"]
 edition = "2021"
@@ -297,4 +297,6 @@ tempfile.workspace = true
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+# 本地 Whisper 语音识别（编译很慢，CI 默认不启用）
+local-whisper = ["voice-core/local-whisper"]
 notification = []  # 预留特性：系统通知功能

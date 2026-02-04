@@ -28,6 +28,10 @@ interface MessageListProps {
   onEditMessage?: (id: string, content: string) => void;
   /** A2UI 表单提交回调 */
   onA2UISubmit?: (formData: A2UIFormData, messageId: string) => void;
+  /** A2UI 表单数据映射（按消息 ID 索引） */
+  a2uiFormDataMap?: Record<string, { formId: string; formData: A2UIFormData }>;
+  /** A2UI 表单数据变化回调（用于持久化） */
+  onA2UIFormChange?: (formId: string, formData: A2UIFormData) => void;
   /** 文件写入回调 */
   onWriteFile?: (content: string, fileName: string) => void;
   /** 文件点击回调 */
@@ -45,6 +49,8 @@ export const MessageList: React.FC<MessageListProps> = ({
   onDeleteMessage,
   onEditMessage,
   onA2UISubmit,
+  a2uiFormDataMap,
+  onA2UIFormChange,
   onWriteFile,
   onFileClick,
   onPermissionResponse,
@@ -219,6 +225,9 @@ export const MessageList: React.FC<MessageListProps> = ({
                         ? (formData) => onA2UISubmit(formData, msg.id)
                         : undefined
                     }
+                    a2uiFormId={a2uiFormDataMap?.[msg.id]?.formId}
+                    a2uiInitialFormData={a2uiFormDataMap?.[msg.id]?.formData}
+                    onA2UIFormChange={onA2UIFormChange}
                     onWriteFile={onWriteFile}
                     onFileClick={onFileClick}
                     onPermissionResponse={onPermissionResponse}

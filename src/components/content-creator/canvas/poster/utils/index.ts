@@ -25,3 +25,28 @@ export {
   type ImageStyle,
   type ImageFilter,
 } from "./styleUtils";
+
+// 安全区域工具
+export {
+  createSafeZoneOverlay,
+  checkSafeZone,
+  showPlatformSafeZone,
+  hideSafeZone,
+} from "./safeZone";
+export type {
+  SafeZoneDisplayOptions,
+  SafeZoneCheckResult,
+  SafeZoneViolation,
+} from "./safeZone";
+
+// 智能裁切工具
+export {
+  calculateSmartCrop,
+  applyCropToCanvas,
+  previewCrop,
+} from "./smartCrop";
+export type {
+  CropRegion,
+  SmartCropOptions,
+  SmartCropResult,
+} from "./smartCrop";

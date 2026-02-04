@@ -1,5 +1,7 @@
+pub mod a2ui_form_dao;
 pub mod agent;
 pub mod api_key_provider;
+pub mod brand_persona_dao;
 pub mod chat;
 pub mod general_chat;
 pub mod installed_plugins;
@@ -7,6 +9,7 @@ pub mod material_dao;
 pub mod mcp;
 pub mod orchestrator;
 pub mod persona_dao;
+pub mod poster_material_dao;
 pub mod prompts;
 pub mod provider_pool;
 pub mod providers;

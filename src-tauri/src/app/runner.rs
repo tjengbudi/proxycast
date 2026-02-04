@@ -1259,6 +1259,14 @@ pub fn run() {
             commands::persona_cmd::set_default_persona,
             commands::persona_cmd::list_persona_templates,
             commands::persona_cmd::get_default_persona,
+            commands::persona_cmd::generate_persona,
+            // Brand Persona commands
+            commands::persona_cmd::get_brand_persona,
+            commands::persona_cmd::get_brand_extension,
+            commands::persona_cmd::save_brand_extension,
+            commands::persona_cmd::update_brand_extension,
+            commands::persona_cmd::delete_brand_extension,
+            commands::persona_cmd::list_brand_persona_templates,
             // Material commands
             commands::material_cmd::upload_material,
             commands::material_cmd::list_materials,
@@ -1268,6 +1276,15 @@ pub fn run() {
             commands::material_cmd::get_material_content,
             commands::material_cmd::get_material_count,
             commands::material_cmd::get_materials_content,
+            // Poster Material commands
+            commands::poster_material_cmd::create_poster_metadata,
+            commands::poster_material_cmd::get_poster_metadata,
+            commands::poster_material_cmd::get_poster_material,
+            commands::poster_material_cmd::list_by_image_category,
+            commands::poster_material_cmd::list_by_layout_category,
+            commands::poster_material_cmd::list_by_mood,
+            commands::poster_material_cmd::update_poster_metadata,
+            commands::poster_material_cmd::delete_poster_metadata,
             // Template commands
             commands::template_cmd::create_template,
             commands::template_cmd::list_templates,
@@ -1276,6 +1293,14 @@ pub fn run() {
             commands::template_cmd::delete_template,
             commands::template_cmd::set_default_template,
             commands::template_cmd::get_default_template,
+            // A2UI Form commands
+            commands::a2ui_form_cmd::create_a2ui_form,
+            commands::a2ui_form_cmd::get_a2ui_form,
+            commands::a2ui_form_cmd::get_a2ui_forms_by_message,
+            commands::a2ui_form_cmd::get_a2ui_forms_by_session,
+            commands::a2ui_form_cmd::save_a2ui_form_data,
+            commands::a2ui_form_cmd::submit_a2ui_form,
+            commands::a2ui_form_cmd::delete_a2ui_form,
             // Content commands
             commands::content_cmd::content_create,
             commands::content_cmd::content_get,

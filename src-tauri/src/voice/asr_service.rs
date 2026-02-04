@@ -23,9 +23,12 @@
 //! let text = AsrService::transcribe(&credential, &audio_data, 16000).await?;
 //! ```
 
+#[cfg(feature = "local-whisper")]
 use std::path::PathBuf;
 
-use crate::config::{load_config, AsrCredentialEntry, AsrProviderType, WhisperModelSize};
+#[cfg(feature = "local-whisper")]
+use crate::config::WhisperModelSize;
+use crate::config::{load_config, AsrCredentialEntry, AsrProviderType};
 
 /// ASR 服务
 pub struct AsrService;
@@ -133,6 +136,7 @@ impl AsrService {
     }
 
     /// 本地 Whisper 识别
+    #[cfg(feature = "local-whisper")]
     async fn transcribe_whisper_local(
         credential: &AsrCredentialEntry,
         audio_data: &[u8],
@@ -182,7 +186,18 @@ impl AsrService {
         Ok(result.text)
     }
 
+    /// 本地 Whisper 识别（未启用 local-whisper feature 时的 stub）
+    #[cfg(not(feature = "local-whisper"))]
+    async fn transcribe_whisper_local(
+        _credential: &AsrCredentialEntry,
+        _audio_data: &[u8],
+        _sample_rate: u32,
+    ) -> Result<String, String> {
+        Err("本地 Whisper 功能未启用。请使用云端 ASR 服务（OpenAI、百度、讯飞）".to_string())
+    }
+
     /// 获取 Whisper 模型文件路径
+    #[cfg(feature = "local-whisper")]
     fn get_whisper_model_path(model_size: &WhisperModelSize) -> Result<PathBuf, String> {
         // 模型文件名
         let filename = match model_size {
@@ -214,6 +229,7 @@ impl AsrService {
     }
 
     /// 转换模型大小枚举
+    #[cfg(feature = "local-whisper")]
     fn convert_model_size(size: &WhisperModelSize) -> voice_core::types::WhisperModel {
         match size {
             WhisperModelSize::Tiny => voice_core::types::WhisperModel::Tiny,

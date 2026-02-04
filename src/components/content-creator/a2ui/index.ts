@@ -30,7 +30,7 @@ export type {
   // 其他类型
   ChoiceOption,
   ButtonAction,
-  ValidationRule,
+  CheckRule,
   DynamicValue,
   DynamicString,
   DynamicBoolean,

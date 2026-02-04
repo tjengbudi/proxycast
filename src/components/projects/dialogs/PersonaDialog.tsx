@@ -1,6 +1,6 @@
 /**
  * @file PersonaDialog.tsx
- * @description 人设编辑对话框组件
+ * @description 人设编辑对话框组件，支持 AI 一键生成
  * @module components/projects/dialogs/PersonaDialog
  * @requirements 6.1, 6.2, 6.3, 6.4
  */
@@ -17,7 +17,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { SaveIcon, Loader2Icon } from "lucide-react";
+import { SaveIcon, Loader2Icon, SparklesIcon } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
+import { toast } from "sonner";
 import type { Persona, CreatePersonaRequest } from "@/types/persona";
 
 export interface PersonaDialogProps {
@@ -44,6 +46,8 @@ export function PersonaDialog({
   onSave,
 }: PersonaDialogProps) {
   const [saving, setSaving] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState("");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [style, setStyle] = useState("");
@@ -73,8 +77,41 @@ export function PersonaDialog({
       setTargetAudience("");
       setForbiddenWords("");
       setPreferredWords("");
+      setAiPrompt("");
     }
   }, [persona, open]);
+
+  // AI 一键生成人设
+  const handleAIGenerate = async () => {
+    if (!aiPrompt.trim()) return;
+    setGenerating(true);
+    try {
+      const result = await invoke<{
+        name: string;
+        description: string;
+        style: string;
+        tone: string;
+        targetAudience: string;
+        forbiddenWords: string[];
+        preferredWords: string[];
+      }>("generate_persona", { prompt: aiPrompt.trim() });
+
+      // 填充表单
+      setName(result.name || "");
+      setDescription(result.description || "");
+      setStyle(result.style || "");
+      setTone(result.tone || "");
+      setTargetAudience(result.targetAudience || "");
+      setForbiddenWords(result.forbiddenWords?.join("、") || "");
+      setPreferredWords(result.preferredWords?.join("、") || "");
+      toast.success("人设生成成功");
+    } catch (error) {
+      console.error("AI 生成人设失败:", error);
+      toast.error(String(error) || "AI 生成人设失败");
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   const handleSave = async () => {
     if (!name.trim()) return;
@@ -114,6 +151,49 @@ export function PersonaDialog({
         </DialogHeader>
 
         <div className="space-y-4 py-4">
+          {/* AI 一键生成 */}
+          {!isEditing && (
+            <div className="space-y-2 p-3 bg-muted/50 rounded-lg border border-dashed">
+              <Label htmlFor="ai-prompt" className="flex items-center gap-1.5">
+                <SparklesIcon className="h-4 w-4 text-primary" />
+                AI 一键生成
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  id="ai-prompt"
+                  value={aiPrompt}
+                  onChange={(e) => setAiPrompt(e.target.value)}
+                  placeholder="描述你想要的人设，例如：一个幽默风趣的科技博主"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleAIGenerate();
+                    }
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={handleAIGenerate}
+                  disabled={generating || !aiPrompt.trim()}
+                  className="shrink-0"
+                >
+                  {generating ? (
+                    <Loader2Icon className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <SparklesIcon className="h-4 w-4" />
+                  )}
+                  <span className="ml-1.5">
+                    {generating ? "生成中" : "生成"}
+                  </span>
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                输入简单描述，AI 将自动生成完整人设配置
+              </p>
+            </div>
+          )}
+
           {/* 名称 */}
           <div className="space-y-2">
             <Label htmlFor="persona-name">人设名称 *</Label>
