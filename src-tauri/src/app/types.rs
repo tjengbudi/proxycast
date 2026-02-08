@@ -3,13 +3,15 @@
 //! 包含应用状态类型和相关实现。
 
 use std::sync::Arc;
-use tauri::Runtime;
+use tauri::{Emitter, Runtime};
 use tokio::sync::RwLock;
 
 use crate::logger;
 use crate::server;
 use crate::services::token_cache_service::TokenCacheService;
 use crate::tray::TrayManager;
+
+use proxycast_core::event_emit::EventEmit;
 
 // 重新导出 core crate 的 ProviderType
 pub use proxycast_core::ProviderType;
@@ -25,6 +27,21 @@ pub struct TokenCacheServiceState(pub Arc<TokenCacheService>);
 
 /// TrayManager 状态封装
 pub struct TrayManagerState<R: Runtime>(pub Arc<tokio::sync::RwLock<Option<TrayManager<R>>>>);
+
+/// 通用 Tauri 事件发射器
+///
+/// 实现 `proxycast_core::EventEmit` trait，
+/// 供所有独立 crate（MCP、Agent 等）通过 DynEmitter 使用。
+#[derive(Clone)]
+pub struct TauriEventEmitter(pub tauri::AppHandle);
+
+impl EventEmit for TauriEventEmitter {
+    fn emit_event(&self, event: &str, payload: &serde_json::Value) -> Result<(), String> {
+        self.0
+            .emit(event, payload.clone())
+            .map_err(|e| format!("Tauri emit 失败: {e}"))
+    }
+}
 
 #[cfg(test)]
 mod tests {
