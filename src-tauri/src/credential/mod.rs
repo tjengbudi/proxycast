@@ -4,32 +4,36 @@
 //!
 //! ## 模块结构
 //!
-//! - `types` - 凭证相关类型定义
-//! - `pool` - 凭证池管理
-//! - `balancer` - 负载均衡策略
-//! - `health` - 健康检查
-//! - `quota` - 配额管理
-//! - `sync` - 数据库同步
-//! - `risk` - 风控模块（限流检测、冷却期管理）
+//! - `types` - 凭证相关类型定义（来自 proxycast-core）
+//! - `pool` - 凭证池管理（来自 proxycast-core）
+//! - `health` - 健康检查（来自 proxycast-core）
+//! - `risk` - 风控模块（来自 proxycast-core）
+//! - `balancer` - 负载均衡策略（本地）
+//! - `quota` - 配额管理（本地）
+//! - `sync` - 数据库同步（本地）
 
+// 从 proxycast-core 重新导出核心类型模块
+pub use proxycast_core::credential::{health, pool, risk, types};
+
+// 本地模块（依赖 infra 或 Tauri）
 mod balancer;
-mod health;
-mod pool;
 mod quota;
-pub mod risk;
 mod sync;
-mod types;
 
+// 重新导出 core 类型
+pub use proxycast_core::credential::{
+    CooldownConfig, Credential, CredentialData, CredentialPool, CredentialStats, CredentialStatus,
+    HealthCheckConfig, HealthCheckResult, HealthChecker, HealthStatus, PoolError, PoolStatus,
+    RateLimitEvent, RateLimitStats, RiskController, RiskLevel,
+};
+
+// 重新导出本地类型
 pub use balancer::{BalanceStrategy, CooldownInfo, CredentialSelection, LoadBalancer};
-pub use health::{HealthCheckConfig, HealthCheckResult, HealthChecker, HealthStatus};
-pub use pool::{CredentialPool, PoolError, PoolStatus};
 pub use quota::{
     create_shared_quota_manager, start_quota_cleanup_task, AllCredentialsExhaustedError,
     QuotaAutoSwitchResult, QuotaExceededRecord, QuotaManager,
 };
-pub use risk::{CooldownConfig, RateLimitEvent, RateLimitStats, RiskController, RiskLevel};
 pub use sync::{CredentialSyncService, SyncError};
-pub use types::{Credential, CredentialData, CredentialStats, CredentialStatus};
 
 #[cfg(test)]
 mod tests;

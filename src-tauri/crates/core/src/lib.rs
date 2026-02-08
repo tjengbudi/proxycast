@@ -35,6 +35,12 @@ pub mod session_files;
 pub mod agent;
 pub mod general_chat;
 
+// 路由系统
+pub mod router;
+
+// 凭证池核心（types, pool, health, risk）
+pub mod credential;
+
 // 数据层
 pub mod content;
 pub mod database;

@@ -2,13 +2,13 @@
 //!
 //! 提供轮询负载均衡策略，支持凭证冷却和自动恢复
 
-use super::health::{HealthCheckConfig, HealthChecker};
-use super::pool::{CredentialPool, PoolError};
-use super::types::Credential;
 use crate::proxy::ProxyClientFactory;
 use crate::ProviderType;
 use chrono::{DateTime, Duration, Utc};
 use dashmap::DashMap;
+use proxycast_core::credential::health::{HealthCheckConfig, HealthChecker};
+use proxycast_core::credential::pool::{CredentialPool, PoolError};
+use proxycast_core::credential::types::Credential;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicUsize, Ordering};

@@ -14,7 +14,7 @@ pub struct CredentialPool {
     /// 所属 Provider 类型
     provider: ProviderType,
     /// 凭证存储（id -> Credential）
-    pub(crate) credentials: DashMap<String, Credential>,
+    pub credentials: DashMap<String, Credential>,
     /// 轮询索引（用于负载均衡）
     round_robin_index: AtomicUsize,
 }
