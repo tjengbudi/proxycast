@@ -170,6 +170,7 @@ export const ProviderSetting: React.FC<ProviderSettingProps> = ({
         {/* 图标 */}
         <ProviderIcon
           providerType={provider.id}
+          fallbackText={provider.name}
           size={40}
           className="flex-shrink-0"
           data-testid="provider-icon"

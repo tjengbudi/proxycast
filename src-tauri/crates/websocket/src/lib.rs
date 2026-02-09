@@ -9,11 +9,15 @@
 #![allow(dead_code)]
 
 pub mod handler;
+pub mod handlers;
 pub mod lifecycle;
 pub mod processor;
+pub mod protocol;
 pub mod stream;
 
+pub use handlers::RpcHandler;
 pub use processor::MessageProcessor;
+pub use protocol::{GatewayRpcRequest, GatewayRpcResponse, RpcError, RpcMethod};
 pub use proxycast_core::websocket::types;
 pub use proxycast_core::websocket::{
     KiroTokenInfo, WsApiRequest, WsApiResponse, WsConfig, WsConnection, WsEndpoint, WsError,

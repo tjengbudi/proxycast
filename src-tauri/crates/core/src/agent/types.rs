@@ -4,6 +4,7 @@
 //! 参考 aster 项目的 Conversation 设计，支持连续对话和工具调用
 
 use serde::{Deserialize, Serialize};
+use crate::models::provider_type::is_custom_provider_id;
 
 /// Provider 类型枚举
 ///
@@ -54,12 +55,13 @@ impl ProviderType {
 
     /// 从 provider 字符串和模型名称推断 provider 类型
     ///
-    /// 对于自定义 Provider ID（如 custom-xxx），尝试从模型名称推断协议类型
+    /// 对于自定义 Provider ID（如 custom-xxx），不做协议推断。
+    /// 真实协议应由 API Key Provider 的 `type`（即 ApiProviderType）在运行时决定。
     pub fn from_provider_and_model(provider: &str, model: &str) -> Self {
         // 首先检查是否是自定义 Provider ID（以 custom- 开头）
-        if provider.starts_with("custom-") {
-            // 自定义 Provider 使用 Anthropic 兼容协议（Anthropic Compatible）
-            return Self::AnthropicCompatible;
+        if is_custom_provider_id(provider) {
+            // 不对 custom-* 做协议猜测，避免与 DB 中真实 Provider 类型不一致
+            return Self::OpenAI;
         }
 
         // 对于其他 Provider，尝试直接解析
@@ -116,6 +118,34 @@ impl ProviderType {
             self,
             Self::OpenAI | Self::Qwen | Self::Codex | Self::Antigravity | Self::IFlow | Self::Kiro
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ProviderType;
+
+    #[test]
+    fn test_custom_provider_does_not_force_anthropic_protocol() {
+        assert_eq!(
+            ProviderType::from_provider_and_model(
+                "custom-ba4e7574-dd00-4784-945a-0f383dfa1272",
+                "claude-sonnet-4-5"
+            ),
+            ProviderType::OpenAI
+        );
+    }
+
+    #[test]
+    fn test_unknown_provider_still_supports_model_based_inference() {
+        assert_eq!(
+            ProviderType::from_provider_and_model("unknown-provider", "claude-3-7-sonnet"),
+            ProviderType::Claude
+        );
+        assert_eq!(
+            ProviderType::from_provider_and_model("unknown-provider", "gemini-2.5-pro"),
+            ProviderType::Gemini
+        );
     }
 }
 

@@ -943,6 +943,17 @@ async fn run_server(
             get(handlers::credentials_get_token),
         );
 
+    // 批量任务 API 路由
+    let batch_api_routes = Router::new()
+        .route("/api/batch/tasks", post(handlers::create_batch_task))
+        .route("/api/batch/tasks", get(handlers::list_batch_tasks))
+        .route("/api/batch/tasks/:id", get(handlers::get_batch_task))
+        .route("/api/batch/tasks/:id", axum::routing::delete(handlers::cancel_batch_task))
+        .route("/api/batch/templates", post(handlers::create_template))
+        .route("/api/batch/templates", get(handlers::list_templates))
+        .route("/api/batch/templates/:id", get(handlers::get_template))
+        .route("/api/batch/templates/:id", axum::routing::delete(handlers::delete_template));
+
     let app = Router::new()
         .route("/health", get(health))
         .route("/v1/models", get(models))
@@ -985,6 +996,8 @@ async fn run_server(
         .merge(kiro_api_routes)
         // 凭证 API 路由（用于 aster Agent 集成）
         .merge(credentials_api_routes)
+        // 批量任务 API 路由
+        .merge(batch_api_routes)
         .layer(DefaultBodyLimit::max(body_limit))
         .with_state(state);
 

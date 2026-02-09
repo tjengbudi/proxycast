@@ -42,6 +42,17 @@ impl Default for OpenAICustomProvider {
 }
 
 impl OpenAICustomProvider {
+    fn maybe_log_protocol_mismatch_hint(url: &str, status: StatusCode) {
+        if (status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN)
+            && url.contains("/api/anthropic")
+        {
+            eprintln!(
+                "[OPENAI_CUSTOM] 提示: URL '{}' 返回 {}，疑似协议不匹配。若上游是 Anthropic 兼容网关，请改用 /v1/messages + x-api-key。",
+                url, status
+            );
+        }
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
@@ -222,6 +233,8 @@ impl OpenAICustomProvider {
                 .send()
                 .await?;
 
+            Self::maybe_log_protocol_mismatch_hint(url, resp.status());
+
             if resp.status() != StatusCode::NOT_FOUND {
                 return Ok(resp);
             }
@@ -258,6 +271,8 @@ impl OpenAICustomProvider {
             .send()
             .await?;
 
+        Self::maybe_log_protocol_mismatch_hint(&url, resp.status());
+
         if resp.status() == StatusCode::NOT_FOUND {
             if let Some(fallback_url) = self.build_url_fallback_without_v1("chat/completions") {
                 if fallback_url != url {
@@ -269,6 +284,7 @@ impl OpenAICustomProvider {
                         .json(request)
                         .send()
                         .await?;
+                    Self::maybe_log_protocol_mismatch_hint(&fallback_url, resp2.status());
                     return Ok(resp2);
                 }
             }
@@ -297,6 +313,7 @@ impl OpenAICustomProvider {
                 .header("Authorization", format!("Bearer {api_key}"))
                 .send()
                 .await?;
+            Self::maybe_log_protocol_mismatch_hint(&url, r.status());
             if r.status() != StatusCode::NOT_FOUND {
                 resp = Some(r);
                 break;

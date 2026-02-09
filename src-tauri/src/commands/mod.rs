@@ -9,6 +9,7 @@ pub mod connect_cmd;
 pub mod connection_cmd;
 pub mod content_cmd;
 pub mod context_memory;
+pub mod ecommerce_review_reply_cmd;
 pub mod external_tools_cmd;
 
 pub mod general_chat_cmd;

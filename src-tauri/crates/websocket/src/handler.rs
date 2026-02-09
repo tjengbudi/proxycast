@@ -3,6 +3,7 @@
 //! 处理 WebSocket 连接和消息
 
 use super::{
+    handlers::{parse_rpc_request, serialize_rpc_response, RpcHandler, RpcHandlerState},
     WsApiRequest, WsApiResponse, WsConfig, WsConnectionManager, WsEndpoint, WsError, WsMessage,
 };
 use axum::{
@@ -27,15 +28,25 @@ pub struct WsHandlerState {
     pub api_key: String,
     /// 日志存储
     pub logs: Arc<RwLock<LogStore>>,
+    /// RPC 处理器状态
+    pub rpc_state: RpcHandlerState,
 }
 
 impl WsHandlerState {
     /// 创建新的处理器状态
-    pub fn new(config: WsConfig, api_key: String, logs: Arc<RwLock<LogStore>>) -> Self {
+    pub fn new(
+        config: WsConfig,
+        api_key: String,
+        logs: Arc<RwLock<LogStore>>,
+        db: Option<proxycast_core::database::DbConnection>,
+        scheduler: Option<proxycast_agent::ProxyCastScheduler>,
+    ) -> Self {
+        let rpc_state = RpcHandlerState::new(db, scheduler, logs.clone());
         Self {
             manager: Arc::new(WsConnectionManager::new(config)),
             api_key,
             logs,
+            rpc_state,
         }
     }
 }
@@ -152,14 +163,43 @@ async fn handle_socket(socket: WebSocket, state: WsHandlerState, client_info: Op
                             }
                         }
                     }
-                    Err(e) => {
-                        state.manager.on_error();
-                        let error = WsMessage::Error(WsError::invalid_message(format!(
-                            "Failed to parse message: {e}"
-                        )));
-                        let error_text = serde_json::to_string(&error).unwrap_or_default();
-                        if sender.send(Message::Text(error_text)).await.is_err() {
-                            break;
+                    Err(_) => {
+                        // 尝试解析为 RPC 请求
+                        match parse_rpc_request(&text) {
+                            Ok(rpc_req) => {
+                                let rpc_handler = RpcHandler::new(state.rpc_state.clone());
+                                let rpc_resp = rpc_handler.handle_request(rpc_req).await;
+                                match serialize_rpc_response(&rpc_resp) {
+                                    Ok(resp_text) => {
+                                        if sender.send(Message::Text(resp_text)).await.is_err() {
+                                            break;
+                                        }
+                                    }
+                                    Err(e) => {
+                                        state.manager.on_error();
+                                        let error = WsMessage::Error(WsError::internal(
+                                            None,
+                                            format!("Failed to serialize RPC response: {:?}", e),
+                                        ));
+                                        let error_text =
+                                            serde_json::to_string(&error).unwrap_or_default();
+                                        if sender.send(Message::Text(error_text)).await.is_err() {
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                state.manager.on_error();
+                                let error = WsMessage::Error(WsError::invalid_message(format!(
+                                    "Failed to parse message as WS or RPC: {}",
+                                    e.message
+                                )));
+                                let error_text = serde_json::to_string(&error).unwrap_or_default();
+                                if sender.send(Message::Text(error_text)).await.is_err() {
+                                    break;
+                                }
+                            }
                         }
                     }
                 }

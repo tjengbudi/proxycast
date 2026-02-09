@@ -9,6 +9,7 @@ homepage.workspace = true
 [dependencies]
 # 项目内 crate
 proxycast-core.workspace = true
+proxycast-agent = { path = "../agent" }
 
 # 序列化
 serde.workspace = true
@@ -23,6 +24,7 @@ axum.workspace = true
 
 # 时间和 UUID
 uuid.workspace = true
+chrono.workspace = true
 
 # 工具库
 dashmap.workspace = true

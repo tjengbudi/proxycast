@@ -10,10 +10,12 @@ use crate::agent::AsterAgentState;
 use crate::database;
 use crate::telemetry;
 use crate::tray::{TrayIconStatus, TrayManager, TrayStateSnapshot};
+use proxycast_scheduler::AgentScheduler;
 use proxycast_services::aster_session_store::ProxyCastSessionStore;
 use proxycast_services::provider_pool_service::ProviderPoolService;
 use proxycast_services::token_cache_service::TokenCacheService;
 
+use super::scheduler_service::{SchedulerService, SchedulerServiceConfig};
 use super::types::{AppState, LogState, TrayManagerState};
 
 /// Tauri setup hook
@@ -76,6 +78,22 @@ pub fn setup_app(
         database::dao::skills::SkillDao::init_default_skill_repos(&conn)
             .expect("Failed to initialize default skill repos");
     }
+
+    // 初始化调度器数据库表
+    if let Err(e) = AgentScheduler::init_tables(&db) {
+        tracing::error!("[启动] 调度器表初始化失败: {}", e);
+    } else {
+        tracing::info!("[启动] 调度器表初始化成功");
+    }
+
+    // 启动调度器服务
+    let scheduler_config = SchedulerServiceConfig::default();
+    let scheduler_service = SchedulerService::new(db.clone(), scheduler_config);
+    scheduler_service.start(db.clone());
+    tracing::info!("[启动] 调度器服务已启动");
+
+    // 将调度器服务注册为 Tauri 状态，以便后续访问
+    app.manage(Arc::new(scheduler_service));
 
     // 自动启动服务器
     let app_handle = app.handle().clone();

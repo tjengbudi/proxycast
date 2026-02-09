@@ -33,6 +33,118 @@ pub enum ApiProviderType {
     Gateway,
 }
 
+/// Provider 协议族
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderProtocolFamily {
+    OpenAiCompatible,
+    Anthropic,
+    Gemini,
+    AzureOpenai,
+    Vertexai,
+    AwsBedrock,
+    Ollama,
+    Codex,
+}
+
+/// Provider 运行时规范
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProviderRuntimeSpec {
+    pub protocol_family: ProviderProtocolFamily,
+    pub default_api_host: &'static str,
+    pub auth_header: &'static str,
+    pub auth_prefix: Option<&'static str>,
+    pub extra_headers: &'static [(&'static str, &'static str)],
+    pub aster_provider_name: &'static str,
+}
+
+const NO_EXTRA_HEADERS: [(&str, &str); 0] = [];
+const ANTHROPIC_EXTRA_HEADERS: [(&str, &str); 1] = [("anthropic-version", "2023-06-01")];
+
+impl ApiProviderType {
+    /// 统一的 Provider 运行时规范
+    pub const fn runtime_spec(&self) -> ProviderRuntimeSpec {
+        match self {
+            ApiProviderType::Anthropic | ApiProviderType::AnthropicCompatible => {
+                ProviderRuntimeSpec {
+                    protocol_family: ProviderProtocolFamily::Anthropic,
+                    default_api_host: "https://api.anthropic.com",
+                    auth_header: "x-api-key",
+                    auth_prefix: None,
+                    extra_headers: &ANTHROPIC_EXTRA_HEADERS,
+                    aster_provider_name: "anthropic",
+                }
+            }
+            ApiProviderType::Gemini => ProviderRuntimeSpec {
+                protocol_family: ProviderProtocolFamily::Gemini,
+                default_api_host: "https://generativelanguage.googleapis.com",
+                auth_header: "x-goog-api-key",
+                auth_prefix: None,
+                extra_headers: &NO_EXTRA_HEADERS,
+                aster_provider_name: "google",
+            },
+            ApiProviderType::AzureOpenai => ProviderRuntimeSpec {
+                protocol_family: ProviderProtocolFamily::AzureOpenai,
+                default_api_host: "https://api.openai.com",
+                auth_header: "api-key",
+                auth_prefix: None,
+                extra_headers: &NO_EXTRA_HEADERS,
+                aster_provider_name: "azure",
+            },
+            ApiProviderType::Vertexai => ProviderRuntimeSpec {
+                protocol_family: ProviderProtocolFamily::Vertexai,
+                default_api_host: "https://api.openai.com",
+                auth_header: "Authorization",
+                auth_prefix: Some("Bearer"),
+                extra_headers: &NO_EXTRA_HEADERS,
+                aster_provider_name: "gcpvertexai",
+            },
+            ApiProviderType::AwsBedrock => ProviderRuntimeSpec {
+                protocol_family: ProviderProtocolFamily::AwsBedrock,
+                default_api_host: "https://api.openai.com",
+                auth_header: "Authorization",
+                auth_prefix: Some("Bearer"),
+                extra_headers: &NO_EXTRA_HEADERS,
+                aster_provider_name: "bedrock",
+            },
+            ApiProviderType::Ollama => ProviderRuntimeSpec {
+                protocol_family: ProviderProtocolFamily::Ollama,
+                default_api_host: "http://localhost:11434",
+                auth_header: "Authorization",
+                auth_prefix: Some("Bearer"),
+                extra_headers: &NO_EXTRA_HEADERS,
+                aster_provider_name: "ollama",
+            },
+            ApiProviderType::Codex => ProviderRuntimeSpec {
+                protocol_family: ProviderProtocolFamily::Codex,
+                default_api_host: "https://api.openai.com",
+                auth_header: "Authorization",
+                auth_prefix: Some("Bearer"),
+                extra_headers: &NO_EXTRA_HEADERS,
+                aster_provider_name: "codex",
+            },
+            ApiProviderType::Openai
+            | ApiProviderType::OpenaiResponse
+            | ApiProviderType::NewApi
+            | ApiProviderType::Gateway => ProviderRuntimeSpec {
+                protocol_family: ProviderProtocolFamily::OpenAiCompatible,
+                default_api_host: "https://api.openai.com",
+                auth_header: "Authorization",
+                auth_prefix: Some("Bearer"),
+                extra_headers: &NO_EXTRA_HEADERS,
+                aster_provider_name: "openai",
+            },
+        }
+    }
+
+    /// 是否属于 Anthropic 协议族
+    pub const fn is_anthropic_protocol(&self) -> bool {
+        matches!(
+            self.runtime_spec().protocol_family,
+            ProviderProtocolFamily::Anthropic
+        )
+    }
+}
+
 impl std::fmt::Display for ApiProviderType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -49,6 +161,179 @@ impl std::fmt::Display for ApiProviderType {
             ApiProviderType::NewApi => write!(f, "new-api"),
             ApiProviderType::Gateway => write!(f, "gateway"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ApiProviderType, ProviderProtocolFamily};
+
+    #[test]
+    fn test_runtime_spec_anthropic_compatible() {
+        let spec = ApiProviderType::AnthropicCompatible.runtime_spec();
+        assert_eq!(spec.protocol_family, ProviderProtocolFamily::Anthropic);
+        assert_eq!(spec.auth_header, "x-api-key");
+        assert_eq!(spec.auth_prefix, None);
+        assert_eq!(spec.default_api_host, "https://api.anthropic.com");
+        assert_eq!(spec.extra_headers[0], ("anthropic-version", "2023-06-01"));
+    }
+
+    #[test]
+    fn test_runtime_spec_openai_defaults() {
+        let spec = ApiProviderType::Openai.runtime_spec();
+        assert_eq!(spec.protocol_family, ProviderProtocolFamily::OpenAiCompatible);
+        assert_eq!(spec.auth_header, "Authorization");
+        assert_eq!(spec.auth_prefix, Some("Bearer"));
+        assert_eq!(spec.default_api_host, "https://api.openai.com");
+    }
+
+    #[test]
+    fn test_runtime_spec_contract_matrix() {
+        let cases = [
+            (
+                ApiProviderType::Openai,
+                ProviderProtocolFamily::OpenAiCompatible,
+                "https://api.openai.com",
+                "Authorization",
+                Some("Bearer"),
+                "openai",
+            ),
+            (
+                ApiProviderType::OpenaiResponse,
+                ProviderProtocolFamily::OpenAiCompatible,
+                "https://api.openai.com",
+                "Authorization",
+                Some("Bearer"),
+                "openai",
+            ),
+            (
+                ApiProviderType::Codex,
+                ProviderProtocolFamily::Codex,
+                "https://api.openai.com",
+                "Authorization",
+                Some("Bearer"),
+                "codex",
+            ),
+            (
+                ApiProviderType::Anthropic,
+                ProviderProtocolFamily::Anthropic,
+                "https://api.anthropic.com",
+                "x-api-key",
+                None,
+                "anthropic",
+            ),
+            (
+                ApiProviderType::AnthropicCompatible,
+                ProviderProtocolFamily::Anthropic,
+                "https://api.anthropic.com",
+                "x-api-key",
+                None,
+                "anthropic",
+            ),
+            (
+                ApiProviderType::Gemini,
+                ProviderProtocolFamily::Gemini,
+                "https://generativelanguage.googleapis.com",
+                "x-goog-api-key",
+                None,
+                "google",
+            ),
+            (
+                ApiProviderType::AzureOpenai,
+                ProviderProtocolFamily::AzureOpenai,
+                "https://api.openai.com",
+                "api-key",
+                None,
+                "azure",
+            ),
+            (
+                ApiProviderType::Vertexai,
+                ProviderProtocolFamily::Vertexai,
+                "https://api.openai.com",
+                "Authorization",
+                Some("Bearer"),
+                "gcpvertexai",
+            ),
+            (
+                ApiProviderType::AwsBedrock,
+                ProviderProtocolFamily::AwsBedrock,
+                "https://api.openai.com",
+                "Authorization",
+                Some("Bearer"),
+                "bedrock",
+            ),
+            (
+                ApiProviderType::Ollama,
+                ProviderProtocolFamily::Ollama,
+                "http://localhost:11434",
+                "Authorization",
+                Some("Bearer"),
+                "ollama",
+            ),
+            (
+                ApiProviderType::NewApi,
+                ProviderProtocolFamily::OpenAiCompatible,
+                "https://api.openai.com",
+                "Authorization",
+                Some("Bearer"),
+                "openai",
+            ),
+            (
+                ApiProviderType::Gateway,
+                ProviderProtocolFamily::OpenAiCompatible,
+                "https://api.openai.com",
+                "Authorization",
+                Some("Bearer"),
+                "openai",
+            ),
+        ];
+
+        for (
+            provider_type,
+            expected_family,
+            expected_host,
+            expected_auth_header,
+            expected_auth_prefix,
+            expected_aster_provider,
+        ) in cases
+        {
+            let spec = provider_type.runtime_spec();
+            assert_eq!(
+                spec.protocol_family, expected_family,
+                "provider_type={provider_type:?}"
+            );
+            assert_eq!(
+                spec.default_api_host, expected_host,
+                "provider_type={provider_type:?}"
+            );
+            assert_eq!(
+                spec.auth_header, expected_auth_header,
+                "provider_type={provider_type:?}"
+            );
+            assert_eq!(
+                spec.auth_prefix, expected_auth_prefix,
+                "provider_type={provider_type:?}"
+            );
+            assert_eq!(
+                spec.aster_provider_name, expected_aster_provider,
+                "provider_type={provider_type:?}"
+            );
+        }
+
+        let anthropic_spec = ApiProviderType::Anthropic.runtime_spec();
+        assert_eq!(
+            anthropic_spec.extra_headers,
+            &[("anthropic-version", "2023-06-01")]
+        );
+
+        let anthropic_compatible_spec = ApiProviderType::AnthropicCompatible.runtime_spec();
+        assert_eq!(
+            anthropic_compatible_spec.extra_headers,
+            &[("anthropic-version", "2023-06-01")]
+        );
+
+        let openai_spec = ApiProviderType::Openai.runtime_spec();
+        assert!(openai_spec.extra_headers.is_empty());
     }
 }
 

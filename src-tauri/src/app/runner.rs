@@ -760,6 +760,8 @@ pub fn run() {
             commands::skill_exec_cmd::execute_skill,
             commands::skill_exec_cmd::list_executable_skills,
             commands::skill_exec_cmd::get_skill_detail,
+            // Ecommerce Review Reply commands
+            commands::ecommerce_review_reply_cmd::execute_ecommerce_review_reply,
             // Provider Pool commands
             commands::provider_pool_cmd::get_provider_pool_overview,
             commands::provider_pool_cmd::get_provider_pool_credentials,

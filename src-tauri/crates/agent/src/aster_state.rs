@@ -466,6 +466,48 @@ impl AsterAgentState {
         crate::create_session_config_with_project(db, session_id, project_id)
     }
 
+    /// 注册 MCP 桥接客户端
+    ///
+    /// 将 ProxyCast 托管的 MCP 客户端注册到 Aster Agent 的 ExtensionManager，
+    /// 使 Agent 能够直接调用该 MCP 服务器提供的工具。
+    ///
+    /// # 参数
+    /// - `name`: 客户端名称
+    /// - `description`: 描述
+    /// - `client`: 实现 McpClientTrait 的客户端，必须包装在 Arc<Mutex<Box<...>>> 中
+    /// - `server_info`: MCP 服务器信息
+    pub async fn register_mcp_bridge(
+        &self,
+        name: String,
+        description: String,
+        client: Arc<tokio::sync::Mutex<Box<dyn aster::agents::mcp_client::McpClientTrait>>>,
+        server_info: Option<rmcp::model::ServerInfo>,
+    ) -> Result<(), String> {
+        let agent_guard = self.agent.read().await;
+        if let Some(agent) = agent_guard.as_ref() {
+            // 创建 Extension 配置
+            let config = aster::agents::extension::ExtensionConfig::Builtin {
+                name: name.clone(),
+                display_name: Some(name.clone()),
+                description,
+                timeout: None,
+                bundled: Some(false),
+                available_tools: Vec::new(),
+            };
+
+            // 注册到 ExtensionManager
+            agent
+                .extension_manager
+                .add_client(name, config, client, server_info, None)
+                .await;
+
+            tracing::info!("[AsterAgent] MCP 桥接注册成功");
+            Ok(())
+        } else {
+            Err("Agent 未初始化".to_string())
+        }
+    }
+
     /// 检查 Agent 是否已初始化
     pub async fn is_initialized(&self) -> bool {
         self.agent.read().await.is_some()

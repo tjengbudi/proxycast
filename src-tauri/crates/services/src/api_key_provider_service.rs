@@ -7,6 +7,7 @@
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use chrono::Utc;
+use crate::provider_type_mapping::pool_provider_type_to_api_type;
 use proxycast_core::database::dao::api_key_provider::{
     ApiKeyEntry, ApiKeyProvider, ApiKeyProviderDao, ApiProviderType, ProviderGroup,
     ProviderWithKeys,
@@ -42,6 +43,7 @@ pub struct ConnectionTestResult {
 #[cfg(test)]
 mod tests {
     use super::ApiKeyProviderService;
+    use proxycast_core::database::dao::api_key_provider::ApiProviderType;
 
     #[test]
     fn test_build_codex_responses_request_input_list() {
@@ -61,6 +63,19 @@ data: {\"type\":\"response.output_text.delta\",\"delta\":\"!\"}\n\n\
 data: [DONE]\n";
         let content = ApiKeyProviderService::parse_codex_responses_sse_content(body);
         assert_eq!(content, "hi!");
+    }
+
+    #[test]
+    fn test_uses_anthropic_protocol() {
+        assert!(ApiKeyProviderService::uses_anthropic_protocol(
+            ApiProviderType::Anthropic
+        ));
+        assert!(ApiKeyProviderService::uses_anthropic_protocol(
+            ApiProviderType::AnthropicCompatible
+        ));
+        assert!(!ApiKeyProviderService::uses_anthropic_protocol(
+            ApiProviderType::Openai
+        ));
     }
 }
 
@@ -214,13 +229,28 @@ impl ApiKeyProviderService {
 
         let start = Instant::now();
 
-        // Codex 协议直接走 /responses 端点
-        let result = if provider.provider_type == ApiProviderType::Codex {
-            self.test_codex_responses_endpoint(&api_key, &provider.api_host, &test_model, &prompt)
+        // 根据 Provider 协议类型选择测试方式
+        let result = match provider.provider_type {
+            // Codex 协议直接走 /responses 端点
+            ApiProviderType::Codex => {
+                self.test_codex_responses_endpoint(
+                    &api_key,
+                    &provider.api_host,
+                    &test_model,
+                    &prompt,
+                )
                 .await
-        } else {
-            self.test_openai_chat_once(&api_key, &provider.api_host, &test_model, &prompt)
-                .await
+            }
+            // Anthropic / AnthropicCompatible 统一走 /v1/messages
+            provider_type if Self::uses_anthropic_protocol(provider_type) => {
+                self.test_anthropic_chat_once(&api_key, &provider.api_host, &test_model, &prompt)
+                    .await
+            }
+            // 其余默认 OpenAI 兼容
+            _ => {
+                self.test_openai_chat_once(&api_key, &provider.api_host, &test_model, &prompt)
+                    .await
+            }
         };
         let latency_ms = start.elapsed().as_millis() as u64;
 
@@ -240,6 +270,11 @@ impl ApiKeyProviderService {
                 raw: None,
             }),
         }
+    }
+
+    #[inline]
+    fn uses_anthropic_protocol(provider_type: ApiProviderType) -> bool {
+        provider_type.is_anthropic_protocol()
     }
 
     async fn test_openai_chat_once(
@@ -324,6 +359,52 @@ impl ApiKeyProviderService {
         }
 
         Err(format!("API 返回错误: {status} - {body}"))
+    }
+
+    async fn test_anthropic_chat_once(
+        &self,
+        api_key: &str,
+        api_host: &str,
+        model: &str,
+        prompt: &str,
+    ) -> Result<(String, String), String> {
+        use proxycast_providers::providers::claude_custom::ClaudeCustomProvider;
+
+        let provider =
+            ClaudeCustomProvider::with_config(api_key.to_string(), Some(api_host.to_string()));
+
+        let request = serde_json::json!({
+            "model": model,
+            "max_tokens": 64,
+            "messages": [{"role": "user", "content": prompt}]
+        });
+
+        let resp = provider
+            .messages(&request)
+            .await
+            .map_err(|e| format!("API 调用失败: {e}"))?;
+
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+
+        if !status.is_success() {
+            return Err(format!("API 返回错误: {status} - {body}"));
+        }
+
+        let parsed: serde_json::Value =
+            serde_json::from_str(&body).map_err(|e| format!("解析响应失败: {e} - {body}"))?;
+
+        let content = parsed["content"]
+            .as_array()
+            .map(|blocks| {
+                blocks
+                    .iter()
+                    .filter_map(|block| block["text"].as_str())
+                    .collect::<String>()
+            })
+            .unwrap_or_default();
+
+        Ok((content, body))
     }
 
     fn parse_chat_completions_sse_content(body: &str) -> String {
@@ -1171,7 +1252,7 @@ impl ApiKeyProviderService {
         }
 
         // 策略 2: 通过类型映射查找（降级方案）
-        if let Some(api_type) = self.map_pool_type_to_api_type(pool_type) {
+        if let Some(api_type) = pool_provider_type_to_api_type(pool_type) {
             eprintln!("[get_fallback_credential] 尝试类型映射: {pool_type:?} -> {api_type:?}");
             if let Some(cred) = self.find_by_api_type(db, pool_type, &api_type)? {
                 eprintln!(
@@ -1186,35 +1267,6 @@ impl ApiKeyProviderService {
             "[get_fallback_credential] 未找到 {pool_type:?} 的降级凭证 (provider_id_hint: {provider_id_hint:?})"
         );
         Ok(None)
-    }
-
-    /// PoolProviderType → ApiProviderType 映射
-    ///
-    /// 仅映射有明确对应关系的类型
-    fn map_pool_type_to_api_type(&self, pool_type: &PoolProviderType) -> Option<ApiProviderType> {
-        match pool_type {
-            // API Key 类型 - 直接映射
-            PoolProviderType::Claude => Some(ApiProviderType::Anthropic),
-            PoolProviderType::OpenAI => Some(ApiProviderType::Openai),
-            PoolProviderType::GeminiApiKey => Some(ApiProviderType::Gemini),
-            PoolProviderType::Vertex => Some(ApiProviderType::Vertexai),
-
-            // OAuth 类型 - 可降级到 API Key
-            PoolProviderType::Gemini => Some(ApiProviderType::Gemini), // Gemini OAuth → Gemini API Key
-
-            // API Key Provider 类型 - 直接映射
-            PoolProviderType::Anthropic => Some(ApiProviderType::Anthropic),
-            PoolProviderType::AnthropicCompatible => Some(ApiProviderType::AnthropicCompatible),
-            PoolProviderType::AzureOpenai => Some(ApiProviderType::AzureOpenai),
-            PoolProviderType::AwsBedrock => Some(ApiProviderType::AwsBedrock),
-            PoolProviderType::Ollama => Some(ApiProviderType::Ollama),
-
-            // OAuth-only，无降级
-            PoolProviderType::Kiro => None,
-            PoolProviderType::Codex => None,
-            PoolProviderType::ClaudeOAuth => None,
-            PoolProviderType::Antigravity => None,
-        }
     }
 
     /// 通过 ApiProviderType 查找凭证
@@ -1585,8 +1637,8 @@ impl ApiKeyProviderService {
 
         // 根据 Provider 类型选择测试方式
         let result = match provider.provider_type {
-            ApiProviderType::Anthropic => {
-                // Anthropic 不支持 /models 端点，需要发送测试请求
+            provider_type if Self::uses_anthropic_protocol(provider_type) => {
+                // Anthropic / AnthropicCompatible 不支持 /models，统一发送 /messages 测试请求
                 let test_model = model_name
                     .or_else(|| provider.custom_models.first().cloned())
                     .unwrap_or_else(|| "claude-3-haiku-20240307".to_string());

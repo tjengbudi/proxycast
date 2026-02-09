@@ -5,6 +5,10 @@
 #![allow(dead_code)]
 
 use crate::api_key_provider_service::ApiKeyProviderService;
+use crate::provider_type_mapping::{
+    api_provider_type_to_pool_type, is_custom_provider_id, parse_pool_provider_type,
+    resolve_pool_provider_type_or_default,
+};
 use chrono::Utc;
 use proxycast_core::database::dao::provider_pool::ProviderPoolDao;
 use proxycast_core::database::DbConnection;
@@ -140,7 +144,7 @@ impl ProviderPoolService {
         db: &DbConnection,
         provider_type: &str,
     ) -> Result<Vec<CredentialDisplay>, String> {
-        let pt: PoolProviderType = provider_type.parse().map_err(|e: String| e)?;
+        let pt = parse_pool_provider_type(provider_type)?;
         let conn = proxycast_core::database::lock_db(db)?;
         let mut credentials =
             ProviderPoolDao::get_by_type(&conn, &pt).map_err(|e| e.to_string())?;
@@ -165,7 +169,7 @@ impl ProviderPoolService {
         check_health: Option<bool>,
         check_model_name: Option<String>,
     ) -> Result<ProviderCredential, String> {
-        let pt: PoolProviderType = provider_type.parse().map_err(|e: String| e)?;
+        let pt = parse_pool_provider_type(provider_type)?;
 
         let mut cred = ProviderCredential::new(pt, credential);
         cred.name = name;
@@ -254,9 +258,17 @@ impl ProviderPoolService {
         model: Option<&str>,
         client_type: Option<&proxycast_core::models::client_type::ClientType>,
     ) -> Result<Option<ProviderCredential>, String> {
+        if is_custom_provider_id(provider_type) {
+            eprintln!(
+                "[SELECT_CREDENTIAL] custom provider '{}' 使用智能降级路径",
+                provider_type
+            );
+            return Ok(None);
+        }
+
         // 对于未知的 provider_type，直接返回 None（不是错误）
         // 这样可以让 select_credential_with_fallback 继续尝试智能降级
-        let pt: PoolProviderType = match provider_type.parse() {
+        let pt: PoolProviderType = match parse_pool_provider_type(provider_type) {
             Ok(pt) => pt,
             Err(_) => {
                 eprintln!(
@@ -427,7 +439,45 @@ impl ProviderPoolService {
         eprintln!("[select_credential_with_fallback] Provider Pool 未找到凭证，尝试智能降级");
 
         // Step 2: 智能降级到 API Key Provider
-        let pt: PoolProviderType = provider_type.parse().unwrap_or(PoolProviderType::OpenAI);
+        let mut pt = resolve_pool_provider_type_or_default(provider_type);
+        let mut resolved_provider_id_hint = provider_id_hint;
+
+        // 对 custom-* 场景优先查询真实 Provider 类型，避免默认按 OpenAI 协议处理
+        if is_custom_provider_id(provider_type) {
+            resolved_provider_id_hint = Some(provider_type);
+        }
+
+        if let Some(custom_provider_id) =
+            resolved_provider_id_hint.filter(|id| is_custom_provider_id(id))
+        {
+            match api_key_service.get_provider(db, custom_provider_id) {
+                Ok(Some(provider_with_keys)) => {
+                    pt = api_provider_type_to_pool_type(provider_with_keys.provider.provider_type);
+                    eprintln!(
+                        "[select_credential_with_fallback] custom provider '{}' 真实类型 {:?} -> {:?}",
+                        custom_provider_id,
+                        provider_with_keys.provider.provider_type,
+                        pt
+                    );
+                }
+                Ok(None) => {
+                    eprintln!(
+                        "[select_credential_with_fallback] custom provider '{}' 不存在，继续使用解析类型 {:?}",
+                        custom_provider_id,
+                        pt
+                    );
+                }
+                Err(e) => {
+                    eprintln!(
+                        "[select_credential_with_fallback] 查询 custom provider '{}' 失败: {}，继续使用解析类型 {:?}",
+                        custom_provider_id,
+                        e,
+                        pt
+                    );
+                }
+            }
+        }
+
         eprintln!(
             "[select_credential_with_fallback] 解析 provider_type '{provider_type}' -> {pt:?}"
         );
@@ -435,7 +485,7 @@ impl ProviderPoolService {
         // 传入 provider_id_hint 支持 60+ Provider
         eprintln!("[select_credential_with_fallback] 调用 get_fallback_credential");
         if let Some(cred) = api_key_service
-            .get_fallback_credential(db, &pt, provider_id_hint, client_type)
+            .get_fallback_credential(db, &pt, resolved_provider_id_hint, client_type)
             .await?
         {
             eprintln!(
@@ -624,7 +674,7 @@ impl ProviderPoolService {
         db: &DbConnection,
         provider_type: &str,
     ) -> Result<usize, String> {
-        let pt: PoolProviderType = provider_type.parse().map_err(|e: String| e)?;
+        let pt = parse_pool_provider_type(provider_type)?;
         let conn = proxycast_core::database::lock_db(db)?;
         ProviderPoolDao::reset_health_by_type(&conn, &pt).map_err(|e| e.to_string())
     }
@@ -960,7 +1010,7 @@ impl ProviderPoolService {
         db: &DbConnection,
         provider_type: &str,
     ) -> Result<Vec<HealthCheckResult>, String> {
-        let pt: PoolProviderType = provider_type.parse().map_err(|e: String| e)?;
+        let pt = parse_pool_provider_type(provider_type)?;
         let credentials = {
             let conn = proxycast_core::database::lock_db(db)?;
             ProviderPoolDao::get_by_type(&conn, &pt).map_err(|e| e.to_string())?
@@ -1798,7 +1848,7 @@ impl ProviderPoolService {
         check_model_name: Option<String>,
         source: proxycast_core::models::provider_pool_model::CredentialSource,
     ) -> Result<ProviderCredential, String> {
-        let pt: PoolProviderType = provider_type.parse().map_err(|e: String| e)?;
+        let pt = parse_pool_provider_type(provider_type)?;
 
         let mut cred = ProviderCredential::new_with_source(pt, credential, source);
         cred.name = name;
@@ -1990,6 +2040,7 @@ pub struct MigrationResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proxycast_core::database::dao::api_key_provider::ApiProviderType;
 
     // ==================== Property 3: 不健康凭证排除 ====================
     // Feature: antigravity-token-refresh, Property 3: 不健康凭证排除
@@ -2119,5 +2170,25 @@ mod tests {
         let deserialized: CredentialHealthInfo = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.uuid, info.uuid);
         assert_eq!(deserialized.is_healthy, info.is_healthy);
+    }
+
+    #[test]
+    fn test_api_provider_type_to_pool_type_mapping() {
+        assert_eq!(
+            api_provider_type_to_pool_type(ApiProviderType::Anthropic),
+            PoolProviderType::Claude
+        );
+        assert_eq!(
+            api_provider_type_to_pool_type(ApiProviderType::AnthropicCompatible),
+            PoolProviderType::AnthropicCompatible
+        );
+        assert_eq!(
+            api_provider_type_to_pool_type(ApiProviderType::Gemini),
+            PoolProviderType::GeminiApiKey
+        );
+        assert_eq!(
+            api_provider_type_to_pool_type(ApiProviderType::Openai),
+            PoolProviderType::OpenAI
+        );
     }
 }

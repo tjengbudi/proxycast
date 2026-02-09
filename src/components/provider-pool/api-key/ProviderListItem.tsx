@@ -88,6 +88,7 @@ export const ProviderListItem: React.FC<ProviderListItemProps> = ({
       {/* Provider 图标 */}
       <ProviderIcon
         providerType={provider.id}
+        fallbackText={provider.name}
         size={24}
         className="flex-shrink-0"
         data-testid="provider-icon"

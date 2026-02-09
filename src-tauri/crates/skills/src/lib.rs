@@ -8,6 +8,9 @@ mod llm_provider;
 mod proxycast_llm_provider;
 mod skill_loader;
 
+// 电商 Skill 模块
+pub mod ecommerce_review_reply;
+
 pub use execution_callback::{
     events, ExecutionCallback, ExecutionCompletePayload, StepCompletePayload, StepErrorPayload,
     StepStartPayload,

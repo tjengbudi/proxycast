@@ -14,12 +14,14 @@
 pub mod bootstrap;
 pub mod commands;
 pub mod runner;
+pub mod scheduler_service;
 mod setup;
 mod state;
 mod types;
 mod utils;
 
 pub use runner::run;
+pub use scheduler_service::{SchedulerService, SchedulerServiceConfig};
 pub use setup::setup_app;
 pub use state::*;
 pub use types::*;

@@ -3,6 +3,8 @@
 //! 将 server 中的各类处理器拆分到独立文件
 
 pub mod api;
+pub mod api_key_provider_utils;
+pub mod batch_api;
 pub mod credentials_api;
 pub mod image_handler;
 pub mod kiro_credential;
@@ -11,6 +13,7 @@ pub mod provider_calls;
 pub mod websocket;
 
 pub use api::*;
+pub use batch_api::*;
 pub use credentials_api::*;
 pub use image_handler::*;
 // 避免 SelectCredentialRequest 歧义 glob re-export（credentials_api 和 kiro_credential 都定义了同名类型）

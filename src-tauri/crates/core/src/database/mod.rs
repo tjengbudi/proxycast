@@ -1,6 +1,7 @@
 pub mod dao;
 pub mod migration;
 pub mod migration_v2;
+pub mod migration_v3;
 pub mod schema;
 pub mod system_providers;
 
@@ -112,6 +113,20 @@ pub fn init_database() -> Result<DbConnection, String> {
         }
         Err(e) => {
             tracing::warn!("[数据库] 统一内容系统迁移失败（非致命）: {}", e);
+        }
+    }
+
+    // 执行 Playwright MCP Server 迁移
+    match migration_v3::migrate_playwright_mcp_server(&conn) {
+        Ok(result) => {
+            if result.executed {
+                if let Some(server_id) = result.server_id {
+                    tracing::info!("[数据库] Playwright MCP Server 迁移完成: server_id={}", server_id);
+                }
+            }
+        }
+        Err(e) => {
+            tracing::warn!("[数据库] Playwright MCP Server 迁移失败（非致命）: {}", e);
         }
     }
 

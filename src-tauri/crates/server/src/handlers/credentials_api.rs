@@ -17,9 +17,11 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::AppState;
-use proxycast_core::database::dao::api_key_provider::{ApiKeyProviderDao, ApiProviderType};
+use proxycast_core::database::dao::api_key_provider::ApiKeyProviderDao;
 use proxycast_core::database::dao::provider_pool::ProviderPoolDao;
 use proxycast_core::models::provider_pool_model::PoolProviderType;
+
+use super::api_key_provider_utils::{build_api_key_headers, collect_api_key_provider_ids};
 
 /// 选择凭证请求参数
 #[derive(Debug, Deserialize)]
@@ -211,54 +213,58 @@ async fn try_select_api_key_credential(
     db: &proxycast_core::database::DbConnection,
     request: &SelectCredentialRequest,
 ) -> Result<Option<CredentialResponse>, CredentialApiError> {
-    // 将 provider_type 映射到 API Key Provider ID
-    let provider_id = map_to_api_key_provider_id(&request.provider_type);
+    let candidate_provider_ids = collect_api_key_provider_ids(&request.provider_type);
 
     // 获取 API Key Provider Service
     let api_key_service = &state.api_key_service;
 
-    // 尝试获取下一个可用的 API Key
-    let (key_id, api_key) = match api_key_service.get_next_api_key_entry(db, &provider_id) {
-        Ok(Some((id, key))) => (id, key),
-        Ok(None) => return Ok(None),
-        Err(_) => return Ok(None),
-    };
+    for provider_id in candidate_provider_ids {
+        // 尝试获取下一个可用的 API Key
+        let (key_id, api_key) = match api_key_service.get_next_api_key_entry(db, &provider_id) {
+            Ok(Some((id, key))) => (id, key),
+            Ok(None) => continue,
+            Err(_) => continue,
+        };
 
-    // 获取 Provider 信息以确定 base_url
-    let conn = db.lock().map_err(|e| CredentialApiError {
-        error: "database_lock_error".to_string(),
-        message: format!("数据库锁定失败: {e}"),
-        status_code: 500,
-    })?;
+        // 获取 Provider 信息以确定 base_url
+        let provider = {
+            let conn = db.lock().map_err(|e| CredentialApiError {
+                error: "database_lock_error".to_string(),
+                message: format!("数据库锁定失败: {e}"),
+                status_code: 500,
+            })?;
 
-    let provider = match ApiKeyProviderDao::get_provider_by_id(&conn, &provider_id) {
-        Ok(Some(p)) => p,
-        Ok(None) => return Ok(None),
-        Err(_) => return Ok(None),
-    };
-    drop(conn);
+            match ApiKeyProviderDao::get_provider_by_id(&conn, &provider_id) {
+                Ok(Some(p)) => p,
+                Ok(None) => continue,
+                Err(_) => continue,
+            }
+        };
 
-    // 构建额外的请求头
-    let extra_headers = build_api_key_headers(&provider.provider_type, &api_key);
+        // 构建额外的请求头
+        let extra_headers = build_api_key_headers(&provider.provider_type, &api_key);
 
-    let response = CredentialResponse {
-        uuid: key_id,
-        provider_type: request.provider_type.clone(),
-        credential_type: CredentialType::ApiKey,
-        access_token: api_key,
-        base_url: provider.api_host,
-        expires_at: None, // API Key 通常没有过期时间
-        name: Some(provider.name),
-        extra_headers: Some(extra_headers),
-    };
+        let response = CredentialResponse {
+            uuid: key_id,
+            provider_type: request.provider_type.clone(),
+            credential_type: CredentialType::ApiKey,
+            access_token: api_key,
+            base_url: provider.api_host,
+            expires_at: None, // API Key 通常没有过期时间
+            name: Some(provider.name),
+            extra_headers: Some(extra_headers),
+        };
 
-    tracing::info!(
-        "[CREDENTIALS_API] API Key 凭证选择成功: {} ({})",
-        response.name.as_deref().unwrap_or("未命名"),
-        response.uuid
-    );
+        tracing::info!(
+            "[CREDENTIALS_API] API Key 凭证选择成功: {} ({})",
+            response.name.as_deref().unwrap_or("未命名"),
+            response.uuid
+        );
 
-    Ok(Some(response))
+        return Ok(Some(response));
+    }
+
+    Ok(None)
 }
 
 /// 尝试从 OAuth 插件选择凭证（已禁用 - 插件系统已移除）
@@ -282,46 +288,6 @@ fn get_oauth_base_url(provider_type: &PoolProviderType) -> String {
         PoolProviderType::ClaudeOAuth => "https://api.anthropic.com".to_string(),
         _ => "https://api.openai.com/v1".to_string(),
     }
-}
-
-/// 将 provider_type 映射到 API Key Provider ID
-fn map_to_api_key_provider_id(provider_type: &str) -> String {
-    match provider_type.to_lowercase().as_str() {
-        "openai" | "gpt" => "openai".to_string(),
-        "anthropic" | "claude" => "anthropic".to_string(),
-        "gemini" | "google" => "gemini".to_string(),
-        "azure" | "azure-openai" => "azure-openai".to_string(),
-        "vertexai" | "vertex" => "vertexai".to_string(),
-        "bedrock" | "aws-bedrock" => "aws-bedrock".to_string(),
-        "ollama" => "ollama".to_string(),
-        _ => provider_type.to_string(),
-    }
-}
-
-/// 根据 API Provider 类型构建额外的请求头
-fn build_api_key_headers(
-    provider_type: &ApiProviderType,
-    api_key: &str,
-) -> std::collections::HashMap<String, String> {
-    let mut headers = std::collections::HashMap::new();
-
-    match provider_type {
-        ApiProviderType::Anthropic => {
-            headers.insert("x-api-key".to_string(), api_key.to_string());
-            headers.insert("anthropic-version".to_string(), "2023-06-01".to_string());
-        }
-        ApiProviderType::Gemini => {
-            headers.insert("x-goog-api-key".to_string(), api_key.to_string());
-        }
-        ApiProviderType::AzureOpenai => {
-            headers.insert("api-key".to_string(), api_key.to_string());
-        }
-        _ => {
-            headers.insert("Authorization".to_string(), format!("Bearer {api_key}"));
-        }
-    }
-
-    headers
 }
 
 /// GET /v1/credentials/{uuid}/token - 获取指定凭证的 Token

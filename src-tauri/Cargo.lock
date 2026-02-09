@@ -255,7 +255,7 @@ dependencies = [
  "rand 0.8.5",
  "regex",
  "reqwest 0.12.28",
- "rmcp 0.12.0",
+ "rmcp",
  "schemars 1.2.1",
  "scraper",
  "serde",
@@ -6565,20 +6565,6 @@ dependencies = [
 
 [[package]]
 name = "process-wrap"
-version = "8.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a3ef4f2f0422f23a82ec9f628ea2acd12871c81a9362b02c43c1aa86acfc3ba1"
-dependencies = [
- "futures",
- "indexmap 2.13.0",
- "nix 0.30.1",
- "tokio",
- "tracing",
- "windows 0.61.3",
-]
-
-[[package]]
-name = "process-wrap"
 version = "9.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd1395947e69c07400ef4d43db0051d6f773c21f647ad8b97382fc01f0204c60"
@@ -6677,6 +6663,7 @@ dependencies = [
  "proxycast-mcp",
  "proxycast-processor",
  "proxycast-providers",
+ "proxycast-scheduler",
  "proxycast-server",
  "proxycast-server-utils",
  "proxycast-services",
@@ -6686,7 +6673,7 @@ dependencies = [
  "rand 0.8.5",
  "regex",
  "reqwest 0.12.28",
- "rmcp 0.6.4",
+ "rmcp",
  "rusqlite",
  "rustls-pemfile 2.2.0",
  "scopeguard",
@@ -6740,10 +6727,11 @@ dependencies = [
  "proxycast-mcp",
  "proxycast-providers",
  "proxycast-services",
- "rmcp 0.6.4",
+ "rmcp",
  "serde",
  "serde_json",
  "tempfile",
+ "thiserror 1.0.69",
  "tokio",
  "tokio-util",
  "tracing",
@@ -6850,7 +6838,7 @@ dependencies = [
  "async-trait",
  "glob",
  "proxycast-core",
- "rmcp 0.6.4",
+ "rmcp",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
@@ -6908,6 +6896,24 @@ dependencies = [
  "tracing",
  "url",
  "urlencoding",
+ "uuid",
+]
+
+[[package]]
+name = "proxycast-scheduler"
+version = "0.61.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "proxycast-agent",
+ "proxycast-core",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
  "uuid",
 ]
 
@@ -7050,10 +7056,12 @@ name = "proxycast-websocket"
 version = "0.61.0"
 dependencies = [
  "axum 0.7.9",
+ "chrono",
  "dashmap 5.5.3",
  "futures",
  "parking_lot",
  "proptest",
+ "proxycast-agent",
  "proxycast-core",
  "serde",
  "serde_json",
@@ -7608,29 +7616,6 @@ dependencies = [
 
 [[package]]
 name = "rmcp"
-version = "0.6.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41ab0892f4938752b34ae47cb53910b1b0921e55e77ddb6e44df666cab17939f"
-dependencies = [
- "base64 0.22.1",
- "chrono",
- "futures",
- "paste",
- "pin-project-lite",
- "process-wrap 8.2.1",
- "rmcp-macros 0.6.4",
- "schemars 1.2.1",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "tracing",
-]
-
-[[package]]
-name = "rmcp"
 version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "528d42f8176e6e5e71ea69182b17d1d0a19a6b3b894b564678b74cd7cab13cfa"
@@ -7643,9 +7628,9 @@ dependencies = [
  "oauth2",
  "pastey",
  "pin-project-lite",
- "process-wrap 9.0.1",
+ "process-wrap",
  "reqwest 0.12.28",
- "rmcp-macros 0.12.0",
+ "rmcp-macros",
  "schemars 1.2.1",
  "serde",
  "serde_json",
@@ -7656,19 +7641,6 @@ dependencies = [
  "tokio-util",
  "tracing",
  "url",
-]
-
-[[package]]
-name = "rmcp-macros"
-version = "0.6.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1827cd98dab34cade0513243c6fe0351f0f0b2c9d6825460bcf45b42804bdda0"
-dependencies = [
- "darling 0.21.3",
- "proc-macro2",
- "quote",
- "serde_json",
- "syn 2.0.114",
 ]
 
 [[package]]

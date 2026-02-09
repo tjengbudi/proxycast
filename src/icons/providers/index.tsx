@@ -226,6 +226,8 @@ const iconComponents: Record<string, ComponentType<SVGProps<SVGSVGElement>>> = {
 interface ProviderIconProps {
   /** Provider 类型或 ID */
   providerType: string;
+  /** 回退文本（未命中图标时用于生成首字母） */
+  fallbackText?: string;
   /** 图标大小，支持数字（px）或字符串 */
   size?: number | string;
   /** 额外的 CSS 类名 */
@@ -249,6 +251,7 @@ interface ProviderIconProps {
  */
 export const ProviderIcon: React.FC<ProviderIconProps> = ({
   providerType,
+  fallbackText,
   size = 24,
   className,
   showFallback = true,
@@ -282,12 +285,27 @@ export const ProviderIcon: React.FC<ProviderIconProps> = ({
 
   // Fallback：显示首字母
   if (showFallback) {
-    const initials = providerType
-      .split(/[-_]/)
-      .map((word) => word[0])
-      .join("")
-      .toUpperCase()
-      .slice(0, 2);
+    const source = fallbackText?.trim() || providerType;
+    const words = source
+      .split(/[\s-_]+/)
+      .map((word) => word.trim())
+      .filter((word) => word.length > 0);
+
+    const primaryWord = words[0] || source;
+    const primaryChars = Array.from(primaryWord);
+    const firstDigit = primaryChars.find((char) => /\d/.test(char));
+
+    const initials =
+      words.length >= 2
+        ? words
+            .slice(0, 2)
+            .map((word) => Array.from(word)[0] || "")
+            .join("")
+            .toUpperCase()
+        : firstDigit && primaryChars.length > 0
+          ? `${primaryChars[0]}${firstDigit}`.toUpperCase()
+          : primaryChars.slice(0, 2).join("").toUpperCase();
+
     const fallbackFontSize =
       typeof size === "number" ? `${Math.max(size * 0.5, 12)}px` : "0.5em";
     return (

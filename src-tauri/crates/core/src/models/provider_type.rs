@@ -4,6 +4,11 @@
 
 use serde::{Deserialize, Serialize};
 
+/// 是否为自定义 Provider ID（`custom-*`）
+pub fn is_custom_provider_id(provider_type: &str) -> bool {
+    provider_type.to_lowercase().starts_with("custom-")
+}
+
 /// Provider 类型枚举
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -91,8 +96,9 @@ impl std::str::FromStr for ProviderType {
             "oneapi" | "one-api" | "newapi" | "new-api" => Ok(ProviderType::OpenAI),
             "custom" | "custom_openai" => Ok(ProviderType::OpenAI),
             // 自定义 Provider（UUID 格式，如 custom-ba4e7574-dd00-4784-945a-0f383dfa1272）
-            // 这些是用户通过 API Key Provider 添加的自定义服务
-            s if s.starts_with("custom-") => Ok(ProviderType::OpenAI),
+            // 注意：这里仅做“通道级”兼容映射（按 OpenAI 兜底），
+            // 实际协议应在运行时通过 API Key Provider.type 决定。
+            s if is_custom_provider_id(s) => Ok(ProviderType::OpenAI),
             _ => Err(format!("Unknown provider: {s}")),
         }
     }
@@ -177,6 +183,18 @@ mod tests {
             "custom".parse::<ProviderType>().unwrap(),
             ProviderType::OpenAI
         );
+    }
+
+    #[test]
+    fn test_is_custom_provider_id() {
+        assert!(is_custom_provider_id(
+            "custom-ba4e7574-dd00-4784-945a-0f383dfa1272"
+        ));
+        assert!(is_custom_provider_id(
+            "CUSTOM-ba4e7574-dd00-4784-945a-0f383dfa1272"
+        ));
+        assert!(!is_custom_provider_id("custom"));
+        assert!(!is_custom_provider_id("openai"));
     }
 
     #[test]

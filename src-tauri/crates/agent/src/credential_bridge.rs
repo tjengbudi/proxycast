@@ -12,6 +12,7 @@
 
 use aster::model::ModelConfig;
 use aster::providers::base::Provider;
+use proxycast_core::database::dao::api_key_provider::ApiProviderType;
 use proxycast_core::database::DbConnection;
 use proxycast_core::models::provider_pool_model::{
     CredentialData, PoolProviderType, ProviderCredential,
@@ -447,7 +448,15 @@ fn set_provider_env_vars(config: &AsterProviderConfig) {
                 }
             }
             "anthropic" => {
+                // Aster Anthropic Provider 读取 ANTHROPIC_HOST
+                std::env::set_var("ANTHROPIC_HOST", base_url);
+                // 兼容历史逻辑，保留旧变量
                 std::env::set_var("ANTHROPIC_BASE_URL", base_url);
+                tracing::info!(
+                    "[CredentialBridge] 设置 ANTHROPIC_HOST={}, ANTHROPIC_BASE_URL={}",
+                    base_url,
+                    base_url
+                );
             }
             _ => {
                 // 其他 Provider 使用通用格式
@@ -487,6 +496,10 @@ pub fn map_pool_type_to_aster(pool_type: &PoolProviderType) -> &'static str {
 ///
 /// 支持 60+ API Key Provider，包括 deepseek, moonshot, qwen 等
 fn map_provider_type_to_aster(provider_type: &str) -> &'static str {
+    if let Ok(api_type) = provider_type.parse::<ApiProviderType>() {
+        return api_type.runtime_spec().aster_provider_name;
+    }
+
     match provider_type {
         // 标准 Provider
         "openai" => "openai",
@@ -559,5 +572,27 @@ mod tests {
         let (host, path) = split_url_host_and_path("https://api.openai.com/");
         assert_eq!(host, "https://api.openai.com");
         assert_eq!(path, "");
+    }
+
+    #[test]
+    fn test_set_provider_env_vars_anthropic_sets_host_and_base_url() {
+        let config = AsterProviderConfig {
+            provider_name: "anthropic".to_string(),
+            model_name: "glm-4.7".to_string(),
+            api_key: Some("test-key".to_string()),
+            base_url: Some("https://open.bigmodel.cn/api/anthropic".to_string()),
+            credential_uuid: "test-uuid".to_string(),
+        };
+
+        set_provider_env_vars(&config);
+
+        assert_eq!(
+            std::env::var("ANTHROPIC_HOST").ok().as_deref(),
+            Some("https://open.bigmodel.cn/api/anthropic")
+        );
+        assert_eq!(
+            std::env::var("ANTHROPIC_BASE_URL").ok().as_deref(),
+            Some("https://open.bigmodel.cn/api/anthropic")
+        );
     }
 }

@@ -23,7 +23,6 @@ use axum::{
     Json,
 };
 use serde_json::json;
-use std::collections::HashMap;
 
 use crate::client_detector::ClientType;
 use crate::{record_request_telemetry, record_token_usage, AppState};
@@ -39,6 +38,93 @@ use proxycast_server_utils::{
 };
 
 use super::{call_provider_anthropic, call_provider_openai};
+
+async fn select_credential_for_request(
+    state: &AppState,
+    selected_provider: &str,
+    model: &str,
+    client_type: &ClientType,
+    explicit_provider_id: Option<&str>,
+    log_prefix: &str,
+    include_error_code: bool,
+) -> Result<Option<proxycast_core::models::provider_pool_model::ProviderCredential>, Response> {
+    let db = match &state.db {
+        Some(db) => db,
+        None => {
+            eprintln!("[{log_prefix}] 数据库未初始化!");
+            return Ok(None);
+        }
+    };
+
+    if let Some(explicit_provider_id) = explicit_provider_id {
+        eprintln!(
+            "[{log_prefix}] 使用 X-Provider-Id 指定的 provider: {explicit_provider_id}"
+        );
+        let cred = state
+            .pool_service
+            .select_credential_with_client_check(
+                db,
+                explicit_provider_id,
+                Some(model),
+                Some(client_type),
+            )
+            .ok()
+            .flatten();
+
+        if cred.is_none() {
+            eprintln!(
+                "[{log_prefix}] X-Provider-Id '{explicit_provider_id}' 没有可用凭证，不进行降级"
+            );
+            state.logs.write().await.add(
+                "error",
+                &format!(
+                    "[ROUTE] No available credentials for explicitly specified provider '{explicit_provider_id}', refusing to fallback"
+                ),
+            );
+
+            let mut error_body = json!({
+                "error": {
+                    "type": "provider_unavailable",
+                    "message": format!("No available credentials for provider '{}'", explicit_provider_id)
+                }
+            });
+            if include_error_code {
+                error_body["error"]["code"] = json!("no_credentials");
+            }
+
+            return Err((StatusCode::SERVICE_UNAVAILABLE, Json(error_body)).into_response());
+        }
+
+        return Ok(cred);
+    }
+
+    let provider_id_hint = selected_provider.to_lowercase();
+    match state
+        .pool_service
+        .select_credential_with_fallback(
+            db,
+            &state.api_key_service,
+            selected_provider,
+            Some(model),
+            Some(provider_id_hint.as_str()),
+            Some(client_type),
+        )
+        .await
+    {
+        Ok(cred) => {
+            if cred.is_some() {
+                eprintln!("[{log_prefix}] 找到凭证: provider={selected_provider}");
+            } else {
+                eprintln!("[{log_prefix}] 未找到凭证: provider={selected_provider}");
+            }
+            Ok(cred)
+        }
+        Err(e) => {
+            eprintln!("[{log_prefix}] 选择凭证失败: {e}");
+            Ok(None)
+        }
+    }
+}
 
 // ============================================================================
 // Provider 选择辅助函数
@@ -249,231 +335,23 @@ pub async fn chat_completions(
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_lowercase());
 
-    // 尝试从凭证池中选择凭证（带客户端兼容性检查）
-    // 如果指定了 X-Provider-Id，优先使用它（不降级）
-    // 否则使用 selected_provider
+    // 尝试选择凭证：
+    // 1) X-Provider-Id 指定时仅走精确匹配（不降级）
+    // 2) 否则走统一的“池优先 + API Key Provider 智能降级”路径
     eprintln!("[CHAT_COMPLETIONS] 开始选择凭证...");
-    let credential = match &state.db {
-        Some(db) => {
-            // 如果指定了 X-Provider-Id，优先使用它（不降级）
-            if let Some(ref explicit_provider_id) = provider_id_header {
-                eprintln!(
-                    "[CHAT_COMPLETIONS] 使用 X-Provider-Id 指定的 provider: {explicit_provider_id}"
-                );
-                let cred = state
-                    .pool_service
-                    .select_credential_with_client_check(
-                        db,
-                        explicit_provider_id,
-                        Some(&request.model),
-                        Some(&client_type),
-                    )
-                    .ok()
-                    .flatten();
-
-                if cred.is_none() {
-                    eprintln!(
-                        "[CHAT_COMPLETIONS] X-Provider-Id '{explicit_provider_id}' 没有可用凭证，不进行降级"
-                    );
-                    state.logs.write().await.add(
-                        "error",
-                        &format!(
-                            "[ROUTE] No available credentials for explicitly specified provider '{explicit_provider_id}', refusing to fallback"
-                        ),
-                    );
-                    // 返回错误，不降级
-                    return (
-                        StatusCode::SERVICE_UNAVAILABLE,
-                        Json(json!({
-                            "error": {
-                                "message": format!("No available credentials for provider '{}'", explicit_provider_id),
-                                "type": "provider_unavailable",
-                                "code": "no_credentials"
-                            }
-                        })),
-                    )
-                        .into_response();
-                }
-                cred
-            } else {
-                // 使用 selected_provider（从 API Server 配置中获取）
-                eprintln!(
-                    "[CHAT_COMPLETIONS] 尝试从凭证池选择: provider={}, model={}",
-                    selected_provider, request.model
-                );
-                let cred = state
-                    .pool_service
-                    .select_credential_with_client_check(
-                        db,
-                        &selected_provider,
-                        Some(&request.model),
-                        Some(&client_type),
-                    )
-                    .ok()
-                    .flatten();
-
-                if cred.is_some() {
-                    eprintln!("[CHAT_COMPLETIONS] 找到凭证: provider={selected_provider}");
-                } else {
-                    eprintln!("[CHAT_COMPLETIONS] 未找到凭证: provider={selected_provider}");
-                }
-
-                cred
-            }
-        }
-        None => {
-            eprintln!("[CHAT_COMPLETIONS] 数据库未初始化!");
-            None
-        }
-    };
-
-    // 如果 Provider Pool 中没有找到凭证，尝试从 API Key Provider 获取（智能降级）
-    let credential = if credential.is_none() {
-        eprintln!("[CHAT_COMPLETIONS] Provider Pool 中未找到凭证，尝试 API Key Provider...");
-
-        use proxycast_core::database::dao::api_key_provider::ApiProviderType;
-        let provider_id_lower = selected_provider.to_lowercase();
-
-        // 策略 1: 优先按 provider_id 直接查找（支持 deepseek, moonshot 等 60+ Provider）
-        // 这些 Provider 在 API Key Provider 中有独立配置
-        let mut found_credential: Option<
-            proxycast_core::models::provider_pool_model::ProviderCredential,
-        > = None;
-
-        if let Some(db) = &state.db {
-            // 先尝试按 provider_id 直接查找
-            eprintln!("[CHAT_COMPLETIONS] 尝试按 provider_id '{provider_id_lower}' 直接查找凭证");
-
-            match state
-                .api_key_service
-                .get_fallback_credential(
-                    db,
-                    &proxycast_core::models::provider_pool_model::PoolProviderType::OpenAI,
-                    Some(&provider_id_lower),
-                    Some(&client_type),
-                )
-                .await
-            {
-                Ok(Some(cred)) => {
-                    eprintln!(
-                        "[CHAT_COMPLETIONS] 通过 provider_id '{}' 找到凭证: name={:?}",
-                        provider_id_lower, cred.name
-                    );
-                    state.logs.write().await.add(
-                        "info",
-                        &format!(
-                            "[ROUTE] Using API Key Provider credential by provider_id: {provider_id_lower}"
-                        ),
-                    );
-                    found_credential = Some(cred);
-                }
-                Ok(None) => {
-                    eprintln!(
-                        "[CHAT_COMPLETIONS] provider_id '{provider_id_lower}' 未找到凭证，尝试按类型查找"
-                    );
-                }
-                Err(e) => {
-                    eprintln!("[CHAT_COMPLETIONS] 按 provider_id 查找凭证失败: {e}");
-                }
-            }
-
-            // 策略 2: 如果按 provider_id 未找到，按类型查找
-            if found_credential.is_none() {
-                let api_provider_type = match provider_id_lower.as_str() {
-                    "anthropic" | "claude" => Some(ApiProviderType::Anthropic),
-                    "openai" => Some(ApiProviderType::Openai),
-                    "gemini" => Some(ApiProviderType::Gemini),
-                    // 以下都是 OpenAI 兼容的 Provider，但优先按 provider_id 查找已在上面处理
-                    "deepseek" | "moonshot" | "groq" | "grok" | "mistral" | "perplexity"
-                    | "cohere" | "openrouter" | "silicon" => Some(ApiProviderType::Openai),
-                    _ => None,
-                };
-
-                if let Some(api_type) = api_provider_type {
-                    eprintln!(
-                        "[CHAT_COMPLETIONS] 尝试从 API Key Provider 类型 '{api_type:?}' 获取凭证"
-                    );
-
-                    match state.api_key_service.get_next_api_key_by_type(db, api_type) {
-                        Ok(Some((_key_id, api_key, provider_info))) => {
-                            eprintln!(
-                                "[CHAT_COMPLETIONS] 从 API Key Provider 获取到凭证: provider={}, api_host={}",
-                                provider_info.name,
-                                provider_info.api_host
-                            );
-
-                            let base_url = if provider_info.api_host.is_empty() {
-                                None
-                            } else {
-                                Some(provider_info.api_host.clone())
-                            };
-
-                            let provider_type = match provider_info.provider_type {
-                                ApiProviderType::Anthropic => {
-                                    proxycast_core::ProviderType::Anthropic
-                                }
-                                ApiProviderType::Openai | ApiProviderType::OpenaiResponse => {
-                                    proxycast_core::ProviderType::OpenAI
-                                }
-                                ApiProviderType::Gemini => {
-                                    proxycast_core::ProviderType::GeminiApiKey
-                                }
-                                _ => proxycast_core::ProviderType::OpenAI,
-                            };
-
-                            let credential_data = match provider_type {
-                                proxycast_core::ProviderType::Anthropic => {
-                                    proxycast_core::models::provider_pool_model::CredentialData::AnthropicKey {
-                                        api_key: api_key.clone(),
-                                        base_url,
-                                    }
-                                }
-                                proxycast_core::ProviderType::GeminiApiKey => {
-                                    proxycast_core::models::provider_pool_model::CredentialData::GeminiApiKey {
-                                        api_key: api_key.clone(),
-                                        base_url,
-                                        excluded_models: vec![],
-                                    }
-                                }
-                                _ => proxycast_core::models::provider_pool_model::CredentialData::OpenAIKey {
-                                    api_key: api_key.clone(),
-                                    base_url,
-                                },
-                            };
-
-                            let mut cred =
-                                proxycast_core::models::provider_pool_model::ProviderCredential::new(
-                                    provider_type,
-                                    credential_data,
-                                );
-                            cred.name = Some(provider_info.name.clone());
-
-                            state.logs.write().await.add(
-                                "info",
-                                &format!(
-                                    "[ROUTE] Using API Key Provider credential: provider={}, type={:?}",
-                                    provider_info.name, provider_info.provider_type
-                                ),
-                            );
-
-                            found_credential = Some(cred);
-                        }
-                        Ok(None) => {
-                            eprintln!(
-                                "[CHAT_COMPLETIONS] API Key Provider 类型 '{api_type:?}' 没有可用的 API Key"
-                            );
-                        }
-                        Err(e) => {
-                            eprintln!("[CHAT_COMPLETIONS] 从 API Key Provider 获取凭证失败: {e}");
-                        }
-                    }
-                }
-            }
-        }
-
-        found_credential
-    } else {
-        credential
+    let credential = match select_credential_for_request(
+        &state,
+        &selected_provider,
+        &request.model,
+        &client_type,
+        provider_id_header.as_deref(),
+        "CHAT_COMPLETIONS",
+        true,
+    )
+    .await
+    {
+        Ok(cred) => cred,
+        Err(resp) => return resp,
     };
 
     // 如果找到凭证池中的凭证，使用它
@@ -983,123 +861,22 @@ pub async fn anthropic_messages(
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_lowercase());
 
-    // 尝试从凭证池中选择凭证（带客户端兼容性检查）
-    // 如果指定了 X-Provider-Id，优先使用它（不降级）
-    // 否则使用 selected_provider
-    let credential = match &state.db {
-        Some(db) => {
-            // 如果指定了 X-Provider-Id，优先使用它（不降级）
-            if let Some(ref explicit_provider_id) = provider_id_header {
-                eprintln!(
-                    "[ANTHROPIC_MESSAGES] 使用 X-Provider-Id 指定的 provider: {explicit_provider_id}"
-                );
-                let cred = state
-                    .pool_service
-                    .select_credential_with_client_check(
-                        db,
-                        explicit_provider_id,
-                        Some(&request.model),
-                        Some(&client_type),
-                    )
-                    .ok()
-                    .flatten();
-
-                if cred.is_none() {
-                    eprintln!(
-                        "[AMP] X-Provider-Id '{explicit_provider_id}' 没有可用凭证，不进行降级"
-                    );
-                    state.logs.write().await.add(
-                        "error",
-                        &format!(
-                            "[ROUTE] No available credentials for explicitly specified provider '{explicit_provider_id}', refusing to fallback"
-                        ),
-                    );
-                    // 返回错误，不降级
-                    return (
-                        StatusCode::SERVICE_UNAVAILABLE,
-                        Json(json!({
-                            "error": {
-                                "type": "provider_unavailable",
-                                "message": format!("No available credentials for provider '{}'", explicit_provider_id)
-                            }
-                        })),
-                    )
-                        .into_response();
-                }
-                cred
-            } else {
-                // 使用 selected_provider（从 API Server 配置中获取）
-                eprintln!(
-                    "[ANTHROPIC_MESSAGES] 尝试从凭证池选择: provider={}, model={}",
-                    selected_provider, request.model
-                );
-                let cred = state
-                    .pool_service
-                    .select_credential_with_client_check(
-                        db,
-                        &selected_provider,
-                        Some(&request.model),
-                        Some(&client_type),
-                    )
-                    .ok()
-                    .flatten();
-
-                if cred.is_some() {
-                    eprintln!("[ANTHROPIC_MESSAGES] 找到凭证: provider={selected_provider}");
-                } else {
-                    eprintln!("[ANTHROPIC_MESSAGES] 未找到凭证: provider={selected_provider}");
-                }
-
-                cred
-            }
-        }
-        None => {
-            eprintln!("[ANTHROPIC_MESSAGES] 数据库未初始化!");
-            None
-        }
-    };
-
-    // 如果 Provider Pool 中没有找到凭证，尝试从 API Key Provider 获取（智能降级）
-    let credential = if credential.is_none() {
-        eprintln!("[ANTHROPIC_MESSAGES] Provider Pool 中未找到凭证，尝试 API Key Provider...");
-
-        // 策略 1: 优先按 provider_id 直接查找（支持自定义 Provider）
-        let mut found_credential: Option<
-            proxycast_core::models::provider_pool_model::ProviderCredential,
-        > = None;
-
-        if let Some(db) = &state.db {
-            eprintln!("[ANTHROPIC_MESSAGES] 尝试按 provider_id '{selected_provider}' 直接查找凭证");
-
-            match state
-                .api_key_service
-                .get_fallback_credential(
-                    db,
-                    &proxycast_core::models::provider_pool_model::PoolProviderType::Anthropic,
-                    Some(&selected_provider),
-                    Some(&client_type),
-                )
-                .await
-            {
-                Ok(Some(cred)) => {
-                    eprintln!(
-                        "[ANTHROPIC_MESSAGES] 通过 provider_id '{}' 找到凭证: name={:?}",
-                        selected_provider, cred.name
-                    );
-                    found_credential = Some(cred);
-                }
-                Ok(None) => {
-                    eprintln!("[ANTHROPIC_MESSAGES] provider_id '{selected_provider}' 未找到凭证");
-                }
-                Err(e) => {
-                    eprintln!("[ANTHROPIC_MESSAGES] 查找凭证时出错: {e}");
-                }
-            }
-        }
-
-        found_credential
-    } else {
-        credential
+    // 尝试选择凭证：
+    // 1) X-Provider-Id 指定时仅走精确匹配（不降级）
+    // 2) 否则走统一的“池优先 + API Key Provider 智能降级”路径
+    let credential = match select_credential_for_request(
+        &state,
+        &selected_provider,
+        &request.model,
+        &client_type,
+        provider_id_header.as_deref(),
+        "ANTHROPIC_MESSAGES",
+        false,
+    )
+    .await
+    {
+        Ok(cred) => cred,
+        Err(resp) => return resp,
     };
 
     // 如果找到凭证池中的凭证，使用它
@@ -1649,69 +1426,6 @@ fn build_stream_error_response(
             )
                 .into_response()
         })
-}
-
-// ============================================================================
-// API Key Provider 辅助函数
-// ============================================================================
-
-/// 将 provider_type 映射到 API Key Provider ID
-fn map_to_api_key_provider_id(provider_type: &str) -> String {
-    match provider_type.to_lowercase().as_str() {
-        "openai" | "gpt" => "openai".to_string(),
-        "anthropic" | "claude" => "anthropic".to_string(),
-        "gemini" | "google" => "gemini".to_string(),
-        "azure" | "azure-openai" | "azure_openai" => "azure-openai".to_string(),
-        "vertexai" | "vertex" => "vertexai".to_string(),
-        "bedrock" | "aws-bedrock" | "aws_bedrock" => "aws-bedrock".to_string(),
-        "ollama" => "ollama".to_string(),
-        _ => provider_type.to_string(),
-    }
-}
-
-/// 根据 API Provider 类型构建额外的请求头
-fn build_api_key_headers(
-    provider_type: &proxycast_core::database::dao::api_key_provider::ApiProviderType,
-    api_key: &str,
-) -> HashMap<String, String> {
-    use proxycast_core::database::dao::api_key_provider::ApiProviderType;
-
-    let mut headers = HashMap::new();
-
-    match provider_type {
-        ApiProviderType::Anthropic => {
-            headers.insert("x-api-key".to_string(), api_key.to_string());
-            headers.insert("anthropic-version".to_string(), "2023-06-01".to_string());
-        }
-        ApiProviderType::Gemini => {
-            headers.insert("x-goog-api-key".to_string(), api_key.to_string());
-        }
-        ApiProviderType::AzureOpenai => {
-            headers.insert("api-key".to_string(), api_key.to_string());
-        }
-        _ => {
-            headers.insert("Authorization".to_string(), format!("Bearer {api_key}"));
-        }
-    }
-
-    headers
-}
-
-/// 获取默认的 API Host
-fn get_default_api_host(
-    provider_type: &proxycast_core::database::dao::api_key_provider::ApiProviderType,
-) -> String {
-    use proxycast_core::database::dao::api_key_provider::ApiProviderType;
-
-    match provider_type {
-        ApiProviderType::Openai | ApiProviderType::OpenaiResponse => {
-            "https://api.openai.com".to_string()
-        }
-        ApiProviderType::Anthropic => "https://api.anthropic.com".to_string(),
-        ApiProviderType::Gemini => "https://generativelanguage.googleapis.com".to_string(),
-        ApiProviderType::Ollama => "http://localhost:11434".to_string(),
-        _ => "https://api.openai.com".to_string(),
-    }
 }
 
 /// 将 OpenAI 格式请求转换为 Anthropic 格式

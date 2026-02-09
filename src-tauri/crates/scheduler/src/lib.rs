@@ -1,0 +1,59 @@
+//! ProxyCast Agent Scheduler
+//!
+//! 提供 Agent 任务调度功能，支持定时任务、重试机制等。
+//!
+//! ## 功能
+//! - 任务创建和管理
+//! - 任务持久化到 SQLite
+//! - 定时任务调度
+//! - 任务状态跟踪
+//! - 失败重试机制
+//! - 批量任务支持
+//!
+//! ## 使用示例
+//!
+//! ```rust,no_run
+//! use proxycast_scheduler::{AgentScheduler, ScheduledTask, SchedulerTrait};
+//! use chrono::Utc;
+//!
+//! # async fn example(db: proxycast_core::database::DbConnection) -> Result<(), String> {
+//! // 初始化调度器
+//! AgentScheduler::init_tables(&db)?;
+//! let scheduler = AgentScheduler::new(db);
+//!
+//! // 创建任务
+//! let task = ScheduledTask::new(
+//!     "测试任务".to_string(),
+//!     "test_task".to_string(),
+//!     serde_json::json!({"param": "value"}),
+//!     "openai".to_string(),
+//!     "gpt-4".to_string(),
+//!     Utc::now(),
+//! );
+//!
+//! let task_id = scheduler.create_task(task).await?;
+//!
+//! // 获取到期任务
+//! let due_tasks = scheduler.get_due_tasks(10).await?;
+//! # Ok(())
+//! # }
+//! ```
+
+pub mod batch;
+pub mod batch_dao;
+pub mod dao;
+pub mod executor;
+pub mod scheduler;
+pub mod template;
+pub mod types;
+
+pub use batch::{
+    BatchOptions, BatchTask, BatchTaskStatistics, BatchTaskStatus, TaskDefinition, TaskResult,
+    TaskStatus as BatchTaskStatus2, TokenUsage,
+};
+pub use batch_dao::{BatchTaskDao, TemplateDao};
+pub use dao::SchedulerDao;
+pub use executor::{AgentExecutor, TaskExecutor};
+pub use scheduler::{AgentScheduler, SchedulerTrait};
+pub use template::TaskTemplate;
+pub use types::{ScheduledTask, TaskFilter, TaskStatus};

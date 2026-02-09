@@ -11,6 +11,7 @@ pub mod mcp_bridge;
 pub mod prompt;
 pub mod session_store;
 pub mod subagent_scheduler;
+pub mod tools;
 
 pub use aster_state::{AsterAgentState, ProviderConfig};
 pub use aster_state_support::{
@@ -28,3 +29,4 @@ pub use session_store::{
 pub use subagent_scheduler::{
     ProxyCastScheduler, ProxyCastSubAgentExecutor, SchedulerEventEmitter, SubAgentProgressEvent,
 };
+pub use tools::{BrowserAction, BrowserTool, BrowserToolError, BrowserToolResult};

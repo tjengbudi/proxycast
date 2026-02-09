@@ -14,6 +14,7 @@ import { withI18nPatch } from "./i18n/withI18nPatch";
 import { SplashScreen } from "./components/SplashScreen";
 import { AppSidebar } from "./components/AppSidebar";
 import { SettingsPage } from "./components/settings";
+import { SettingsPageV2 } from "./components/settings-v2";
 import { ApiServerPage } from "./components/api-server/ApiServerPage";
 import { ProviderPoolPage } from "./components/provider-pool";
 import { ToolsPage } from "./components/tools/ToolsPage";
@@ -352,10 +353,17 @@ function AppContent() {
           <PluginsPage />
         </PageWrapper>
 
-        {/* Settings 页面 */}
-        <PageWrapper $isActive={currentPage === "settings"}>
-          <SettingsPage />
-        </PageWrapper>
+        {/* Settings 页面 - 使用新版 V2 布局 */}
+        <div
+          style={{
+            flex: 1,
+            minHeight: 0,
+            display: currentPage === "settings" ? "flex" : "none",
+            flexDirection: "column",
+          }}
+        >
+          <SettingsPageV2 />
+        </div>
 
         {/* 动态插件页面已移除 */}
       </>

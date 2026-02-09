@@ -203,6 +203,7 @@ pub async fn update_provider_env_vars(
     api_host: String,
     api_key: Option<String>,
 ) -> Result<(), String> {
+    use proxycast_core::database::dao::api_key_provider::ApiProviderType;
     use proxycast_services::live_sync::write_env_to_shell_config;
     use serde_json::{json, Value};
     use std::fs;
@@ -211,75 +212,15 @@ pub async fn update_provider_env_vars(
 
     // 根据 provider_type 确定要更新的环境变量
     // 参考 Claude Code 文档：https://code.claude.com/docs/en/llm-gateway
-    let env_vars: Vec<(String, String)> = match provider_type.to_lowercase().as_str() {
-        // Anthropic 兼容类型 - 包括大多数第三方 Provider
-        // 如 DeepSeek、智谱、MiniMax、OpenRouter、AiHubMix 等
-        "anthropic" | "new-api" | "gateway" => {
-            let mut vars = vec![("ANTHROPIC_BASE_URL".to_string(), api_host.clone())];
-            if let Some(key) = api_key {
-                vars.push(("ANTHROPIC_AUTH_TOKEN".to_string(), key));
-            }
-            vars
-        }
-        // OpenAI 兼容类型 - 用于 Codex 等
-        "openai" | "openai-response" => {
-            let mut vars = vec![("OPENAI_BASE_URL".to_string(), api_host.clone())];
-            if let Some(key) = api_key {
-                vars.push(("OPENAI_API_KEY".to_string(), key));
-            }
-            vars
-        }
-        // Gemini 类型
-        "gemini" => {
-            let mut vars = vec![("GEMINI_API_BASE_URL".to_string(), api_host.clone())];
-            if let Some(key) = api_key {
-                vars.push(("GEMINI_API_KEY".to_string(), key));
-            }
-            vars
-        }
-        // Azure OpenAI 类型
-        "azure-openai" => {
-            let mut vars = vec![("AZURE_OPENAI_BASE_URL".to_string(), api_host.clone())];
-            if let Some(key) = api_key {
-                vars.push(("AZURE_OPENAI_API_KEY".to_string(), key));
-            }
-            vars
-        }
-        // Google Vertex AI 类型
-        "vertexai" => {
-            let mut vars = vec![("ANTHROPIC_VERTEX_BASE_URL".to_string(), api_host.clone())];
-            if let Some(key) = api_key {
-                vars.push(("GOOGLE_APPLICATION_CREDENTIALS".to_string(), key));
-            }
-            vars
-        }
-        // AWS Bedrock 类型
-        "aws-bedrock" => {
-            let vars = vec![
-                ("ANTHROPIC_BEDROCK_BASE_URL".to_string(), api_host.clone()),
-                ("CLAUDE_CODE_USE_BEDROCK".to_string(), "1".to_string()),
-            ];
-            // Bedrock 通常使用 AWS 凭证，不需要单独的 API Key
-            vars
-        }
-        // Ollama 本地部署
-        "ollama" => {
-            let vars = vec![("OLLAMA_BASE_URL".to_string(), api_host.clone())];
-            vars
-        }
-        _ => {
-            // 未知类型，默认使用 ANTHROPIC_BASE_URL（因为大多数第三方 Provider 都是 Anthropic 兼容的）
-            logs.write().await.add(
-                "info",
-                &format!("Provider 类型 '{provider_type}' 使用默认 ANTHROPIC_BASE_URL"),
-            );
-            let mut vars = vec![("ANTHROPIC_BASE_URL".to_string(), api_host.clone())];
-            if let Some(key) = api_key {
-                vars.push(("ANTHROPIC_AUTH_TOKEN".to_string(), key));
-            }
-            vars
-        }
-    };
+    let parsed_api_provider_type = provider_type.parse::<ApiProviderType>().ok();
+    let env_vars = build_provider_env_vars(&provider_type, &api_host, api_key.as_deref());
+
+    if parsed_api_provider_type.is_none() {
+        logs.write().await.add(
+            "info",
+            &format!("Provider 类型 '{provider_type}' 使用默认 OPENAI_BASE_URL"),
+        );
+    }
 
     // 1. 更新 ~/.claude/settings.json
     let claude_dir = home.join(".claude");
@@ -342,4 +283,154 @@ pub async fn update_provider_env_vars(
     );
 
     Ok(())
+}
+
+fn build_provider_env_vars(
+    provider_type: &str,
+    api_host: &str,
+    api_key: Option<&str>,
+) -> Vec<(String, String)> {
+    use proxycast_core::database::dao::api_key_provider::{
+        ApiProviderType, ProviderProtocolFamily,
+    };
+
+    let push_if_key = |vars: &mut Vec<(String, String)>, key_name: &str| {
+        if let Some(value) = api_key {
+            vars.push((key_name.to_string(), value.to_string()));
+        }
+    };
+
+    match provider_type.to_lowercase().as_str() {
+        // Anthropic 兼容类型 - 包括大多数第三方 Provider
+        // 如 DeepSeek、智谱、MiniMax、OpenRouter、AiHubMix 等
+        "anthropic" | "anthropic-compatible" => {
+            let mut vars = vec![
+                ("ANTHROPIC_HOST".to_string(), api_host.to_string()),
+                ("ANTHROPIC_BASE_URL".to_string(), api_host.to_string()),
+            ];
+            push_if_key(&mut vars, "ANTHROPIC_AUTH_TOKEN");
+            vars
+        }
+        // OpenAI 兼容类型 - 用于 Codex 等
+        "openai" | "openai-response" => {
+            let mut vars = vec![("OPENAI_BASE_URL".to_string(), api_host.to_string())];
+            push_if_key(&mut vars, "OPENAI_API_KEY");
+            vars
+        }
+        // Gemini 类型
+        "gemini" => {
+            let mut vars = vec![("GEMINI_API_BASE_URL".to_string(), api_host.to_string())];
+            push_if_key(&mut vars, "GEMINI_API_KEY");
+            vars
+        }
+        // Azure OpenAI 类型
+        "azure-openai" => {
+            let mut vars = vec![("AZURE_OPENAI_BASE_URL".to_string(), api_host.to_string())];
+            push_if_key(&mut vars, "AZURE_OPENAI_API_KEY");
+            vars
+        }
+        // Google Vertex AI 类型
+        "vertexai" => {
+            let mut vars = vec![("ANTHROPIC_VERTEX_BASE_URL".to_string(), api_host.to_string())];
+            push_if_key(&mut vars, "GOOGLE_APPLICATION_CREDENTIALS");
+            vars
+        }
+        // AWS Bedrock 类型
+        "aws-bedrock" => {
+            // Bedrock 通常使用 AWS 凭证，不需要单独的 API Key
+            vec![
+                ("ANTHROPIC_BEDROCK_BASE_URL".to_string(), api_host.to_string()),
+                ("CLAUDE_CODE_USE_BEDROCK".to_string(), "1".to_string()),
+            ]
+        }
+        // Ollama 本地部署
+        "ollama" => vec![("OLLAMA_BASE_URL".to_string(), api_host.to_string())],
+        _ => {
+            // 未知类型尽量按已注册 ApiProviderType 的协议族生成环境变量
+            if let Ok(api_type) = provider_type.parse::<ApiProviderType>() {
+                match api_type.runtime_spec().protocol_family {
+                    ProviderProtocolFamily::Anthropic => {
+                        let mut vars = vec![
+                            ("ANTHROPIC_HOST".to_string(), api_host.to_string()),
+                            ("ANTHROPIC_BASE_URL".to_string(), api_host.to_string()),
+                        ];
+                        push_if_key(&mut vars, "ANTHROPIC_AUTH_TOKEN");
+                        vars
+                    }
+                    ProviderProtocolFamily::OpenAiCompatible
+                    | ProviderProtocolFamily::Codex
+                    | ProviderProtocolFamily::Gemini
+                    | ProviderProtocolFamily::AzureOpenai
+                    | ProviderProtocolFamily::Vertexai
+                    | ProviderProtocolFamily::AwsBedrock
+                    | ProviderProtocolFamily::Ollama => {
+                        let mut vars = vec![("OPENAI_BASE_URL".to_string(), api_host.to_string())];
+                        push_if_key(&mut vars, "OPENAI_API_KEY");
+                        vars
+                    }
+                }
+            } else {
+                // 兜底：保守使用 OpenAI 兼容变量，避免误导为 Anthropic
+                let mut vars = vec![("OPENAI_BASE_URL".to_string(), api_host.to_string())];
+                push_if_key(&mut vars, "OPENAI_API_KEY");
+                vars
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_provider_env_vars;
+
+    #[test]
+    fn test_build_provider_env_vars_explicit_anthropic_compatible() {
+        let vars = build_provider_env_vars(
+            "anthropic-compatible",
+            "https://open.bigmodel.cn/api/anthropic",
+            Some("k1"),
+        );
+
+        assert_eq!(
+            vars,
+            vec![
+                (
+                    "ANTHROPIC_HOST".to_string(),
+                    "https://open.bigmodel.cn/api/anthropic".to_string()
+                ),
+                (
+                    "ANTHROPIC_BASE_URL".to_string(),
+                    "https://open.bigmodel.cn/api/anthropic".to_string()
+                ),
+                ("ANTHROPIC_AUTH_TOKEN".to_string(), "k1".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_build_provider_env_vars_openai_family_defaults() {
+        let vars = build_provider_env_vars("new-api", "https://relay.example.com", Some("k2"));
+        assert_eq!(
+            vars,
+            vec![
+                (
+                    "OPENAI_BASE_URL".to_string(),
+                    "https://relay.example.com".to_string()
+                ),
+                ("OPENAI_API_KEY".to_string(), "k2".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_build_provider_env_vars_unknown_provider_fallback() {
+        let vars = build_provider_env_vars("custom-unknown", "https://proxy.example.com", None);
+        assert_eq!(
+            vars,
+            vec![(
+                "OPENAI_BASE_URL".to_string(),
+                "https://proxy.example.com".to_string()
+            )]
+        );
+    }
 }
