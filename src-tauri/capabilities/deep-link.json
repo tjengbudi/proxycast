@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "deep-link",
+  "description": "Deep link 权限（仅 macOS 和 Windows）",
+  "windows": ["main"],
+  "platforms": ["macOS", "windows"],
+  "permissions": [
+    "deep-link:default"
+  ]
+}
