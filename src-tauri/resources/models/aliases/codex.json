@@ -3,12 +3,19 @@
   "provider": "codex",
   "description": "OpenAI Codex CLI 支持的模型",
   "models": [
+    "gpt-5.3-codex",
     "gpt-5.2-codex",
     "gpt-5.1-codex-max",
     "gpt-5.1-codex-mini",
     "gpt-5.2"
   ],
   "aliases": {
+    "gpt-5.3-codex": {
+      "actual": "gpt-5.3-codex",
+      "internal_name": "gpt-5.3-codex",
+      "provider": "openai",
+      "description": "Codex 最新一代模型，编码与推理能力增强"
+    },
     "gpt-5.2-codex": {
       "actual": "gpt-5.2-codex",
       "internal_name": "gpt-5.2-codex",
@@ -34,5 +41,5 @@
       "description": "最新前沿模型，跨知识、推理和编码的全面提升"
     }
   },
-  "updated_at": "2026-01-13T00:00:00Z"
+  "updated_at": "2026-02-11T00:00:00Z"
 }

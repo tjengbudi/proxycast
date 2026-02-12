@@ -18,7 +18,7 @@ const Container = styled.div`
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: hsl(var(--background));
+  background: hsl(var(--muted) / 0.18);
   border-right: 1px solid hsl(var(--border));
 `;
 
@@ -26,26 +26,43 @@ const Header = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
+  padding: 14px 18px;
   border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
+`;
+
+const HeaderInfo = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 `;
 
 const Title = styled.h3`
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
+  margin: 0;
+  color: hsl(var(--foreground));
+`;
+
+const HeaderMeta = styled.span`
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
 `;
 
 const Content = styled.div`
   display: flex;
   flex: 1;
   min-height: 0;
+  background: hsl(var(--background));
 `;
 
 const ChapterList = styled.div`
-  width: 220px;
+  width: 236px;
+  min-width: 236px;
   border-right: 1px solid hsl(var(--border));
   display: flex;
   flex-direction: column;
+  background: hsl(var(--muted) / 0.28);
 `;
 
 const ChapterListHeader = styled.div`
@@ -54,17 +71,30 @@ const ChapterListHeader = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
+  background: hsl(var(--background));
+`;
+
+const ChapterListBody = styled.div`
+  padding: 8px;
 `;
 
 const ChapterItem = styled.div<{ $active?: boolean }>`
-  padding: 12px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
   cursor: pointer;
-  border-bottom: 1px solid hsl(var(--border));
+  border: 1px solid
+    ${({ $active }) =>
+      $active ? "hsl(var(--primary) / 0.4)" : "hsl(var(--border))"};
+  border-radius: 10px;
   background: ${({ $active }) =>
-    $active ? "hsl(var(--accent))" : "transparent"};
+    $active ? "hsl(var(--accent) / 0.55)" : "hsl(var(--background))"};
+  box-shadow: ${({ $active }) =>
+    $active ? "0 2px 8px hsl(var(--primary) / 0.12)" : "none"};
+  transition: all 0.18s ease;
 
   &:hover {
-    background: hsl(var(--accent));
+    background: hsl(var(--accent) / 0.42);
+    border-color: hsl(var(--primary) / 0.28);
   }
 `;
 
@@ -74,12 +104,21 @@ const ChapterTitle = styled.div`
   display: flex;
   align-items: center;
   gap: 6px;
+  color: hsl(var(--foreground));
+`;
+
+const ChapterTitleText = styled.span`
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 `;
 
 const ChapterMeta = styled.div`
   font-size: 12px;
   color: hsl(var(--muted-foreground));
-  margin-top: 4px;
+  margin-top: 6px;
 `;
 
 const EditorArea = styled.div`
@@ -87,46 +126,64 @@ const EditorArea = styled.div`
   display: flex;
   flex-direction: column;
   min-width: 0;
+  background: hsl(var(--background));
 `;
 
 const ChapterHeader = styled.div`
-  padding: 16px;
+  padding: 14px 18px;
   border-bottom: 1px solid hsl(var(--border));
   display: flex;
   gap: 12px;
   align-items: center;
+  background: hsl(var(--muted) / 0.16);
 `;
 
 const EditorContainer = styled.div`
   flex: 1;
-  padding: 24px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
+  min-height: 0;
 `;
 
 const Editor = styled(Textarea)`
   flex: 1;
-  min-height: 400px;
+  min-height: 0;
   font-size: 16px;
-  line-height: 1.8;
+  line-height: 1.95;
   resize: none;
-  border: none;
-  background: transparent;
+  border: 1px solid hsl(var(--border));
+  border-radius: 12px;
+  background: hsl(var(--background));
+  padding: 18px 20px;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.03);
 
   &:focus {
-    outline: none;
-    box-shadow: none;
+    border-color: hsl(var(--primary));
+    box-shadow: 0 0 0 3px hsl(var(--primary) / 0.12);
   }
 `;
 
+const EmptyEditorState = styled.div`
+  flex: 1;
+  border: 1px dashed hsl(var(--border));
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: hsl(var(--muted-foreground));
+  font-size: 14px;
+`;
+
 const StatusBar = styled.div`
-  padding: 8px 16px;
+  padding: 9px 16px;
   border-top: 1px solid hsl(var(--border));
   display: flex;
   align-items: center;
   justify-content: space-between;
   font-size: 12px;
   color: hsl(var(--muted-foreground));
+  background: hsl(var(--background));
 `;
 
 interface NovelCanvasProps {
@@ -196,7 +253,12 @@ export const NovelCanvas: React.FC<NovelCanvasProps> = memo(
     return (
       <Container>
         <Header>
-          <Title>小说编辑器</Title>
+          <HeaderInfo>
+            <Title>小说编辑器</Title>
+            <HeaderMeta>
+              {state.chapters.length} 章 · {totalWords} 字
+            </HeaderMeta>
+          </HeaderInfo>
           <Button variant="ghost" size="icon" onClick={onClose}>
             <X className="h-4 w-4" />
           </Button>
@@ -211,23 +273,25 @@ export const NovelCanvas: React.FC<NovelCanvasProps> = memo(
               </Button>
             </ChapterListHeader>
             <ScrollArea className="flex-1">
-              {state.chapters.map((chapter) => (
-                <ChapterItem
-                  key={chapter.id}
-                  $active={chapter.id === state.currentChapterId}
-                  onClick={() => handleChapterSelect(chapter.id)}
-                >
-                  <ChapterTitle>
-                    {chapter.status === "completed" ? (
-                      <CheckCircle2 className="h-4 w-4 text-green-500" />
-                    ) : (
-                      <FileText className="h-4 w-4 text-muted-foreground" />
-                    )}
-                    {chapter.title}
-                  </ChapterTitle>
-                  <ChapterMeta>{chapter.wordCount} 字</ChapterMeta>
-                </ChapterItem>
-              ))}
+              <ChapterListBody>
+                {state.chapters.map((chapter) => (
+                  <ChapterItem
+                    key={chapter.id}
+                    $active={chapter.id === state.currentChapterId}
+                    onClick={() => handleChapterSelect(chapter.id)}
+                  >
+                    <ChapterTitle>
+                      {chapter.status === "completed" ? (
+                        <CheckCircle2 className="h-4 w-4 text-green-500" />
+                      ) : (
+                        <FileText className="h-4 w-4 text-muted-foreground" />
+                      )}
+                      <ChapterTitleText>{chapter.title}</ChapterTitleText>
+                    </ChapterTitle>
+                    <ChapterMeta>{chapter.wordCount} 字</ChapterMeta>
+                  </ChapterItem>
+                ))}
+              </ChapterListBody>
             </ScrollArea>
           </ChapterList>
 
@@ -275,6 +339,14 @@ export const NovelCanvas: React.FC<NovelCanvasProps> = memo(
                   />
                 </EditorContainer>
               </>
+            )}
+
+            {!currentChapter && (
+              <EditorContainer>
+                <EmptyEditorState>
+                  请先选择章节，或在左侧新建章节开始创作
+                </EmptyEditorState>
+              </EditorContainer>
             )}
           </EditorArea>
         </Content>

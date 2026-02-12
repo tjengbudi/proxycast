@@ -311,6 +311,8 @@ export interface SessionInfo {
   created_at: string;
   last_activity: string;
   messages_count: number;
+  workspace_id?: string;
+  working_dir?: string;
 }
 
 /**

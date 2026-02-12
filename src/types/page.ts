@@ -72,6 +72,7 @@ export type Page =
   | "workspace"
   | ThemeWorkspacePage
   | "image-gen"
+  | "batch"
   | "mcp"
   | "tools"
   | "plugins"
@@ -124,6 +125,8 @@ export interface AgentPageParams {
   lockTheme?: boolean;
   /** 首页点击触发的新会话标记（时间戳） */
   newChatAt?: number;
+  /** 主题工作台重置标记（时间戳） */
+  workspaceResetAt?: number;
   /** 工作台视图模式（仅主题工作台使用） */
   workspaceViewMode?: WorkspaceViewMode;
 }

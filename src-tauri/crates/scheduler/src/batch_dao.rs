@@ -289,6 +289,39 @@ impl BatchTaskDao {
 
         Ok(())
     }
+
+    /// 更新批量任务结果、状态和时间戳
+    ///
+    /// 用于执行器在每个子任务完成后实时更新数据库
+    pub fn update_results(
+        db: &DbConnection,
+        id: &Uuid,
+        status: BatchTaskStatus,
+        results: &[super::batch::TaskResult],
+        started_at: Option<chrono::DateTime<chrono::Utc>>,
+        completed_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<()> {
+        let conn = db.lock().unwrap();
+
+        let results_json = if results.is_empty() {
+            None
+        } else {
+            Some(serde_json::to_string(results)?)
+        };
+
+        conn.execute(
+            "UPDATE batch_tasks SET status = ?1, results_json = ?2, started_at = ?3, completed_at = ?4 WHERE id = ?5",
+            params![
+                serde_json::to_string(&status)?,
+                results_json,
+                started_at.map(|t| t.to_rfc3339()),
+                completed_at.map(|t| t.to_rfc3339()),
+                id.to_string(),
+            ],
+        )?;
+
+        Ok(())
+    }
 }
 
 /// 模板 DAO

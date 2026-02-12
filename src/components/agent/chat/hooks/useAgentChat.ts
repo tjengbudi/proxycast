@@ -15,6 +15,7 @@ import {
   generateAgentTitle,
   parseStreamEvent,
   sendPermissionResponse,
+  stopAsterSession,
   type AgentProcessStatus,
   type SessionInfo,
   type StreamEvent,
@@ -36,6 +37,10 @@ import {
   parseSkillSlashCommand,
   tryExecuteSlashSkillCommand,
 } from "./skillCommand";
+import {
+  isValidSessionId,
+  resolveRestorableSessionId,
+} from "../utils/sessionRecovery";
 
 /** 话题（会话）信息 */
 export interface Topic {
@@ -264,6 +269,8 @@ export function useAgentChat(options: UseAgentChatOptions) {
   const unlistenRef = useRef<UnlistenFn | null>(null);
   // 用于保存当前正在处理的消息 ID
   const currentAssistantMsgIdRef = useRef<string | null>(null);
+  // 当前流式请求对应的会话 ID（用于 stop 时通知后端取消）
+  const currentStreamingSessionIdRef = useRef<string | null>(null);
   // 自动恢复/水合状态跟踪
   const restoredWorkspaceRef = useRef<string | null>(null);
   const hydratedSessionRef = useRef<string | null>(null);
@@ -365,6 +372,7 @@ export function useAgentChat(options: UseAgentChatOptions) {
     if (!workspaceId?.trim()) {
       setSessionId(null);
       setMessages([]);
+      currentStreamingSessionIdRef.current = null;
       _setRoundCount(0);
       setA2uiFormDataMap({});
       restoredWorkspaceRef.current = null;
@@ -395,7 +403,35 @@ export function useAgentChat(options: UseAgentChatOptions) {
   const loadTopics = async () => {
     try {
       const sessions = await listAgentSessions();
-      const topicList: Topic[] = sessions.map((s: SessionInfo) => ({
+      const resolvedWorkspaceId = workspaceId?.trim();
+
+      const validSessions = sessions.filter((s) =>
+        isValidSessionId(s.session_id),
+      );
+
+      for (const session of validSessions) {
+        if (session.workspace_id) {
+          savePersisted(
+            `agent_session_workspace_${session.session_id}`,
+            session.workspace_id,
+          );
+        }
+      }
+
+      const filteredSessions = resolvedWorkspaceId
+        ? validSessions.filter((session) => {
+            const mappedWorkspaceId =
+              session.workspace_id ||
+              loadPersisted<string | null>(
+                `agent_session_workspace_${session.session_id}`,
+                null,
+              );
+
+            return mappedWorkspaceId === resolvedWorkspaceId;
+          })
+        : validSessions;
+
+      const topicList: Topic[] = filteredSessions.map((s: SessionInfo) => ({
         id: s.session_id,
         title: s.title || generateTopicTitle(s),
         createdAt: new Date(s.created_at),
@@ -515,13 +551,7 @@ export function useAgentChat(options: UseAgentChatOptions) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
-  // Ensure an active session exists (internal helper)
-  const _ensureSession = async (): Promise<string | null> => {
-    // If we already have a session, we might want to continue using it.
-    // However, check if we need to "re-initialize" if critical params changed?
-    // User said: "选择模型后，不用和会话绑定". So we keep the session ID if it exists.
-    if (sessionId) return sessionId;
-
+  const createFreshSession = async (): Promise<string | null> => {
     try {
       // TEMPORARY FIX: Disable skills integration due to API type mismatch (Backend expects []SystemMessage, Client sends String)
       // const [claudeSkills, proxyCastSkills] = await Promise.all([
@@ -562,6 +592,104 @@ export function useAgentChat(options: UseAgentChatOptions) {
         duration: 8000,
       });
       return null;
+    }
+  };
+
+  // Ensure an active session exists (internal helper)
+  const _ensureSession = async (): Promise<string | null> => {
+    // If we already have a session, we might want to continue using it.
+    // However, check if we need to "re-initialize" if critical params changed?
+    // User said: "选择模型后，不用和会话绑定". So we keep the session ID if it exists.
+    if (sessionId) return sessionId;
+    return createFreshSession();
+  };
+
+  const isSessionWorkspaceMismatchError = (error: unknown): boolean => {
+    const errorMessage = `${error}`;
+    return (
+      errorMessage.includes("workspace_mismatch|") ||
+      errorMessage.includes("会话工作目录与 workspace 不匹配")
+    );
+  };
+
+  const resetBrokenSessionBinding = (staleSessionId: string | null) => {
+    const resolvedWorkspaceId = workspaceId?.trim();
+
+    sessionResetVersionRef.current += 1;
+    setSessionId(null);
+    currentStreamingSessionIdRef.current = null;
+    hydratedSessionRef.current = null;
+    skipAutoRestoreRef.current = true;
+    restoredWorkspaceRef.current = resolvedWorkspaceId || null;
+
+    if (resolvedWorkspaceId) {
+      saveTransient(`agent_curr_sessionId_${resolvedWorkspaceId}`, null);
+      savePersisted(`agent_last_sessionId_${resolvedWorkspaceId}`, null);
+    }
+
+    if (staleSessionId) {
+      savePersisted(`agent_session_workspace_${staleSessionId}`, "__invalid__");
+    }
+  };
+
+  const sendStreamWithSessionRecovery = async (
+    message: string,
+    eventName: string,
+    resolvedWorkspaceId: string,
+    activeSessionId: string,
+    modelName?: string,
+    images?: Array<{ data: string; media_type: string }>,
+    projectId?: string,
+  ): Promise<void> => {
+    currentStreamingSessionIdRef.current = activeSessionId;
+
+    try {
+      await sendAgentMessageStream(
+        message,
+        eventName,
+        resolvedWorkspaceId,
+        activeSessionId,
+        modelName,
+        images,
+        providerType,
+        undefined,
+        projectId,
+      );
+      return;
+    } catch (error) {
+      if (!isSessionWorkspaceMismatchError(error)) {
+        throw error;
+      }
+
+      console.warn("[AgentChat] 检测到会话工作目录不匹配，准备自动重建会话", {
+        sessionId: activeSessionId,
+        workspaceId: resolvedWorkspaceId,
+      });
+
+      resetBrokenSessionBinding(activeSessionId);
+      const freshSessionId = await createFreshSession();
+      if (!freshSessionId) {
+        throw error;
+      }
+
+      currentStreamingSessionIdRef.current = freshSessionId;
+      toast.info("检测到旧会话目录异常，已自动切换新会话");
+      console.info("[AgentChat] session_auto_recovered", {
+        staleSessionId: activeSessionId,
+        freshSessionId,
+        workspaceId: resolvedWorkspaceId,
+      });
+      await sendAgentMessageStream(
+        message,
+        eventName,
+        resolvedWorkspaceId,
+        freshSessionId,
+        modelName,
+        images,
+        providerType,
+        undefined,
+        projectId,
+      );
     }
   };
 
@@ -631,6 +759,11 @@ export function useAgentChat(options: UseAgentChatOptions) {
         setStreamUnlisten: (unlistenFn) => {
           unlistenRef.current = unlistenFn;
         },
+        setActiveSessionIdForStop: (sessionIdForStop) => {
+          currentStreamingSessionIdRef.current = sessionIdForStop;
+        },
+        isExecutionCancelled: () =>
+          currentAssistantMsgIdRef.current !== assistantMsgId,
         playTypewriterSound,
         playToolcallSound,
         onWriteFile,
@@ -707,6 +840,7 @@ export function useAgentChat(options: UseAgentChatOptions) {
       if (!activeSessionId) {
         throw new Error("无法创建或获取会话");
       }
+      currentStreamingSessionIdRef.current = activeSessionId;
 
       // 3. 创建唯一事件名称
       const eventName = `agent_stream_${assistantMsgId}`;
@@ -815,6 +949,7 @@ export function useAgentChat(options: UseAgentChatOptions) {
             // 清理 ref
             unlistenRef.current = null;
             currentAssistantMsgIdRef.current = null;
+            currentStreamingSessionIdRef.current = null;
             if (unlisten) {
               unlisten();
               unlisten = null;
@@ -862,6 +997,7 @@ export function useAgentChat(options: UseAgentChatOptions) {
             // 清理 ref
             unlistenRef.current = null;
             currentAssistantMsgIdRef.current = null;
+            currentStreamingSessionIdRef.current = null;
             if (unlisten) {
               unlisten();
               unlisten = null;
@@ -1073,14 +1209,13 @@ export function useAgentChat(options: UseAgentChatOptions) {
       });
 
       const resolvedWorkspaceId = getRequiredWorkspaceId();
-      await sendAgentMessageStream(
+      await sendStreamWithSessionRecovery(
         messageToSend,
         eventName,
         resolvedWorkspaceId,
-        activeSessionId, // 传递 sessionId 以保持上下文
+        activeSessionId,
         model || undefined,
         imagesToSend,
-        providerType, // 传递用户选择的 provider
       );
     } catch (error) {
       console.error("[AgentChat] Send failed:", error);
@@ -1091,6 +1226,7 @@ export function useAgentChat(options: UseAgentChatOptions) {
       // Remove the optimistic assistant message on failure
       setMessages((prev) => prev.filter((msg) => msg.id !== assistantMsgId));
       setIsSending(false);
+      currentStreamingSessionIdRef.current = null;
       if (unlisten) {
         unlisten();
       }
@@ -1124,6 +1260,7 @@ export function useAgentChat(options: UseAgentChatOptions) {
 
     setMessages([]);
     setSessionId(null);
+    currentStreamingSessionIdRef.current = null;
     _setRoundCount(0);
     setA2uiFormDataMap({});
     restoredWorkspaceRef.current = resolvedWorkspaceId || null;
@@ -1148,6 +1285,23 @@ export function useAgentChat(options: UseAgentChatOptions) {
   // 切换话题
   const switchTopic = async (topicId: string) => {
     if (topicId === sessionId && messages.length > 0) return;
+
+    const resolvedWorkspaceId = workspaceId?.trim();
+    if (resolvedWorkspaceId) {
+      const topicWorkspaceId = loadPersisted<string | null>(
+        `agent_session_workspace_${topicId}`,
+        null,
+      );
+      if (topicWorkspaceId && topicWorkspaceId !== resolvedWorkspaceId) {
+        console.warn("[AgentChat] cross_workspace_topic_blocked", {
+          topicId,
+          topicWorkspaceId,
+          currentWorkspaceId: resolvedWorkspaceId,
+        });
+        toast.error("该话题不属于当前项目，已阻止切换");
+        return;
+      }
+    }
 
     const restoreRequestVersion = sessionResetVersionRef.current;
     skipAutoRestoreRef.current = false;
@@ -1232,6 +1386,7 @@ export function useAgentChat(options: UseAgentChatOptions) {
       // 加载失败时回退到新会话态，避免卡在无效会话
       setMessages([]);
       setSessionId(null);
+      currentStreamingSessionIdRef.current = null;
       saveTransient(getScopedSessionKey(), null);
       savePersisted(getScopedPersistedSessionKey(), null);
       toast.error("加载对话历史失败");
@@ -1249,39 +1404,31 @@ export function useAgentChat(options: UseAgentChatOptions) {
 
     restoredWorkspaceRef.current = resolvedWorkspaceId;
 
-    const scopedCandidate =
-      loadTransient<string | null>(getScopedSessionKey(), null) ||
-      loadPersisted<string | null>(getScopedPersistedSessionKey(), null);
-
-    const legacyCandidateRaw = loadTransient<string | null>(
+    const scopedTransientCandidate = loadTransient<string | null>(
+      getScopedSessionKey(),
+      null,
+    );
+    const scopedPersistedCandidate = loadPersisted<string | null>(
+      getScopedPersistedSessionKey(),
+      null,
+    );
+    const legacyCandidate = loadTransient<string | null>(
       "agent_curr_sessionId",
       null,
     );
-    const legacyCandidateWorkspace = legacyCandidateRaw
-      ? loadPersisted<string | null>(
-          `agent_session_workspace_${legacyCandidateRaw}`,
-          null,
-        )
-      : null;
-    const legacyCandidate =
-      legacyCandidateRaw &&
-      (!legacyCandidateWorkspace ||
-        legacyCandidateWorkspace === resolvedWorkspaceId)
-        ? legacyCandidateRaw
-        : null;
 
-    const mappedFallbackCandidate =
-      topics.find(
-        (topic) =>
-          loadPersisted<string | null>(
-            `agent_session_workspace_${topic.id}`,
-            null,
-          ) === resolvedWorkspaceId,
-      )?.id || null;
-    const fallbackCandidate =
-      mappedFallbackCandidate || (topics.length === 1 ? topics[0]?.id : null);
-    const targetSessionId =
-      scopedCandidate || legacyCandidate || fallbackCandidate;
+    const targetSessionId = resolveRestorableSessionId({
+      workspaceId: resolvedWorkspaceId,
+      topics,
+      scopedTransientCandidate,
+      scopedPersistedCandidate,
+      legacyCandidate,
+      resolveWorkspaceIdBySessionId: (candidate) =>
+        loadPersisted<string | null>(
+          `agent_session_workspace_${candidate}`,
+          null,
+        ),
+    });
 
     if (!targetSessionId) {
       return;
@@ -1333,6 +1480,7 @@ export function useAgentChat(options: UseAgentChatOptions) {
       if (topicId === sessionId) {
         setSessionId(null);
         setMessages([]);
+        currentStreamingSessionIdRef.current = null;
       }
       toast.success("话题已删除");
     } catch (_error) {
@@ -1355,13 +1503,16 @@ export function useAgentChat(options: UseAgentChatOptions) {
       await stopAgentProcess();
       setProcessStatus({ running: false });
       setSessionId(null); // Reset session on stop
+      currentStreamingSessionIdRef.current = null;
     } catch (_e) {
       toast.error("Stop failed");
     }
   };
 
   // 停止当前发送中的消息
-  const stopSending = () => {
+  const stopSending = async () => {
+    const streamingSessionId = currentStreamingSessionIdRef.current;
+
     // 取消事件监听
     if (unlistenRef.current) {
       unlistenRef.current();
@@ -1384,8 +1535,17 @@ export function useAgentChat(options: UseAgentChatOptions) {
       currentAssistantMsgIdRef.current = null;
     }
 
+    currentStreamingSessionIdRef.current = null;
     setIsSending(false);
     toast.info("已停止生成");
+
+    if (streamingSessionId) {
+      try {
+        await stopAsterSession(streamingSessionId);
+      } catch (error) {
+        console.warn("[useAgentChat] 停止会话失败:", error);
+      }
+    }
   };
 
   // 触发 AI 引导（不显示用户消息，直接让 AI 开始引导）
@@ -1464,6 +1624,7 @@ export function useAgentChat(options: UseAgentChatOptions) {
       if (!activeSessionId) {
         throw new Error("无法创建或获取会话");
       }
+      currentStreamingSessionIdRef.current = activeSessionId;
 
       // 创建唯一事件名称
       const eventName = `agent_stream_${assistantMsgId}`;
@@ -1556,6 +1717,7 @@ export function useAgentChat(options: UseAgentChatOptions) {
             setIsSending(false);
             unlistenRef.current = null;
             currentAssistantMsgIdRef.current = null;
+            currentStreamingSessionIdRef.current = null;
             if (unlisten) {
               unlisten();
               unlisten = null;
@@ -1585,6 +1747,7 @@ export function useAgentChat(options: UseAgentChatOptions) {
             setIsSending(false);
             unlistenRef.current = null;
             currentAssistantMsgIdRef.current = null;
+            currentStreamingSessionIdRef.current = null;
             if (unlisten) {
               unlisten();
               unlisten = null;
@@ -1739,14 +1902,12 @@ export function useAgentChat(options: UseAgentChatOptions) {
       // 发送空消息，让 AI 根据系统提示词开始引导
       console.log("[AgentChat] triggerAIGuide 发送空消息触发引导");
       const resolvedWorkspaceId = getRequiredWorkspaceId();
-      await sendAgentMessageStream(
+      await sendStreamWithSessionRecovery(
         "", // 空消息，让 AI 根据系统提示词开始引导
         eventName,
         resolvedWorkspaceId,
         activeSessionId,
         model || undefined,
-        undefined,
-        providerType,
       );
     } catch (error) {
       console.error("[AgentChat] triggerAIGuide failed:", error);
@@ -1756,6 +1917,7 @@ export function useAgentChat(options: UseAgentChatOptions) {
       });
       setMessages((prev) => prev.filter((msg) => msg.id !== assistantMsgId));
       setIsSending(false);
+      currentStreamingSessionIdRef.current = null;
       if (unlisten) {
         unlisten();
       }

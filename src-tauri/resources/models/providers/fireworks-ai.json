@@ -215,8 +215,35 @@
       "status": "active",
       "release_date": "2025-04-29",
       "is_latest": false
+    },
+    {
+      "id": "accounts/fireworks/models/kimi-k2p5",
+      "name": "Kimi K2.5",
+      "family": "kimi-thinking",
+      "tier": "pro",
+      "capabilities": {
+        "vision": true,
+        "tools": true,
+        "streaming": true,
+        "json_mode": true,
+        "function_calling": true,
+        "reasoning": true
+      },
+      "pricing": {
+        "input": 0.6,
+        "output": 3,
+        "cache_read": 0.1,
+        "currency": "USD"
+      },
+      "limits": {
+        "context": 256000,
+        "max_output": 256000
+      },
+      "status": "active",
+      "release_date": "2026-01-27",
+      "is_latest": true
     }
   ],
-  "updated_at": "2026-01-12T00:00:00.000Z",
+  "updated_at": "2026-02-11T00:00:00.000Z",
   "source": "fireworks.ai"
 }

@@ -58,32 +58,6 @@
       "is_latest": true
     },
     {
-      "id": "deepseek-r1",
-      "name": "DeepSeek R1",
-      "family": "deepseek-r1",
-      "tier": "pro",
-      "capabilities": {
-        "vision": false,
-        "tools": true,
-        "streaming": true,
-        "json_mode": true,
-        "function_calling": true,
-        "reasoning": true
-      },
-      "pricing": {
-        "input": 0.55,
-        "output": 2.19,
-        "currency": "USD"
-      },
-      "limits": {
-        "context": 163840,
-        "max_output": 65536
-      },
-      "status": "active",
-      "release_date": "2025-01-20",
-      "is_latest": true
-    },
-    {
       "id": "mistral-large",
       "name": "Mistral Large",
       "family": "mistral-large",
@@ -134,8 +108,36 @@
       "status": "active",
       "release_date": "2024-12-06",
       "is_latest": false
+    },
+    {
+      "id": "claude-opus-4-6",
+      "name": "Claude Opus 4.6",
+      "family": "claude-opus",
+      "tier": "max",
+      "capabilities": {
+        "vision": true,
+        "tools": true,
+        "streaming": true,
+        "json_mode": true,
+        "function_calling": true,
+        "reasoning": true
+      },
+      "pricing": {
+        "input": 6,
+        "output": 30,
+        "cache_read": 0.6,
+        "cache_write": 7.5,
+        "currency": "USD"
+      },
+      "limits": {
+        "context": 1000000,
+        "max_output": 128000
+      },
+      "status": "active",
+      "release_date": "2026-02-05",
+      "is_latest": true
     }
   ],
-  "updated_at": "2026-01-12T00:00:00.000Z",
+  "updated_at": "2026-02-11T00:00:00.000Z",
   "source": "venice.ai"
 }

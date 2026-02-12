@@ -41,8 +41,9 @@ const SectionHeader = styled.div`
 const SectionTag = styled.span`
   font-size: 12px;
   font-weight: 600;
-  color: hsl(var(--accent));
-  background: hsl(var(--accent) / 0.1);
+  color: hsl(var(--primary));
+  background: hsl(var(--primary) / 0.1);
+  border: 1px solid hsl(var(--primary) / 0.2);
   padding: 2px 8px;
   border-radius: 4px;
 `;

@@ -38,6 +38,7 @@ export interface ImageGenResponse {
   created: number;
   data: Array<{
     url: string;
+    b64_json?: string;
     revised_prompt?: string;
   }>;
 }

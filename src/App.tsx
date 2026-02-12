@@ -19,6 +19,7 @@ import { MemoryPage } from "./components/memory";
 import { AgentChatPage } from "./components/agent";
 import { PluginsPage } from "./components/plugins/PluginsPage";
 import { ImageGenPage } from "./components/image-gen";
+import { BatchPage } from "./components/batch";
 import { CreateProjectDialog } from "./components/projects/CreateProjectDialog";
 import { WorkbenchPage } from "./components/workspace";
 import {
@@ -355,6 +356,7 @@ function AppContent() {
             contentId={(pageParams as AgentPageParams).contentId}
             theme={theme}
             viewMode={(pageParams as AgentPageParams).workspaceViewMode}
+            resetAt={(pageParams as AgentPageParams).workspaceResetAt}
           />
         </div>
       );
@@ -373,6 +375,17 @@ function AppContent() {
           }}
         >
           <ImageGenPage onNavigate={handleNavigate} />
+        </div>
+
+        <div
+          style={{
+            flex: 1,
+            minHeight: 0,
+            display: currentPage === "batch" ? "flex" : "none",
+            flexDirection: "column",
+          }}
+        >
+          <BatchPage onNavigate={handleNavigate} />
         </div>
 
         <div

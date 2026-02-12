@@ -11,6 +11,7 @@ import {
   Image as ImageIcon,
   ImagePlus,
   Loader2,
+  Plus,
   Send,
   Settings,
   Sparkles,
@@ -629,6 +630,110 @@ const Status = styled.div`
   color: hsl(var(--muted-foreground));
 `;
 
+const HistorySidebar = styled.aside`
+  width: 96px;
+  min-width: 96px;
+  border-left: 1px solid hsl(var(--border));
+  background: hsl(var(--card) / 0.3);
+  padding: 12px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+`;
+
+const HistoryNewButton = styled.button`
+  width: 100%;
+  height: 40px;
+  border: 1px dashed hsl(var(--border));
+  border-radius: 10px;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+
+  &:hover {
+    border-color: hsl(var(--primary));
+    color: hsl(var(--primary));
+    background: hsl(var(--primary) / 0.06);
+  }
+`;
+
+const HistoryList = styled.div`
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 2px;
+`;
+
+const HistoryItem = styled.div<{ $active: boolean }>`
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 10px;
+  border: 1px solid
+    ${({ $active }) => ($active ? "hsl(var(--primary))" : "hsl(var(--border))")};
+  background: hsl(var(--background));
+  overflow: hidden;
+  cursor: pointer;
+  position: relative;
+
+  &:hover {
+    border-color: hsl(var(--primary) / 0.55);
+  }
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+`;
+
+const HistoryPlaceholder = styled.div`
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: hsl(var(--muted-foreground));
+`;
+
+const HistoryDeleteButton = styled.button`
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  border: 1px solid hsl(var(--destructive) / 0.35);
+  border-radius: 50%;
+  background: hsl(var(--background) / 0.92);
+  color: hsl(var(--destructive));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: all 0.15s;
+
+  ${HistoryItem}:hover & {
+    opacity: 1;
+  }
+
+  &:hover {
+    background: hsl(var(--destructive));
+    color: hsl(var(--destructive-foreground));
+  }
+`;
+
+const HistoryEmpty = styled.div`
+  margin-top: 10px;
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+  text-align: center;
+`;
+
 export function ImageGenPage({ onNavigate }: ImageGenPageProps) {
   const {
     availableProviders,
@@ -649,6 +754,7 @@ export function ImageGenPage({ onNavigate }: ImageGenPageProps) {
     generating,
     generateImage,
     deleteImage,
+    newImage,
   } = useImageGen();
 
   const [prompt, setPrompt] = useState("");
@@ -1071,6 +1177,61 @@ export function ImageGenPage({ onNavigate }: ImageGenPageProps) {
             </Status>
           )}
         </Workspace>
+
+        <HistorySidebar>
+          <HistoryNewButton
+            title="新建图片"
+            onClick={() => {
+              newImage();
+            }}
+          >
+            <Plus size={18} />
+          </HistoryNewButton>
+
+          <HistoryList>
+            {images.map((image) => (
+              <HistoryItem
+                key={image.id}
+                $active={image.id === selectedImageId}
+                role="button"
+                tabIndex={0}
+                onClick={() => setSelectedImageId(image.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setSelectedImageId(image.id);
+                  }
+                }}
+              >
+                {image.status === "complete" && image.url ? (
+                  <img src={image.url} alt={image.prompt || "历史图片"} />
+                ) : (
+                  <HistoryPlaceholder>
+                    {image.status === "generating" ? (
+                      <Loader2 size={16} className="animate-spin" />
+                    ) : (
+                      <ImageIcon size={16} />
+                    )}
+                  </HistoryPlaceholder>
+                )}
+
+                {image.status !== "generating" && (
+                  <HistoryDeleteButton
+                    title="删除"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      deleteImage(image.id);
+                    }}
+                  >
+                    <Trash2 size={10} />
+                  </HistoryDeleteButton>
+                )}
+              </HistoryItem>
+            ))}
+
+            {images.length === 0 && <HistoryEmpty>暂无历史</HistoryEmpty>}
+          </HistoryList>
+        </HistorySidebar>
       </Container>
     </PageLayout>
   );

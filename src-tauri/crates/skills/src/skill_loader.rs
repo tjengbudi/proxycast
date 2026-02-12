@@ -6,6 +6,28 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+/// Workflow 步骤定义
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkflowStep {
+    /// 步骤 ID
+    pub id: String,
+    /// 步骤名称
+    pub name: String,
+    /// 步骤提示词（作为该步骤的 system_prompt 或追加指令）
+    pub prompt: String,
+    /// 可选的模型覆盖
+    pub model: Option<String>,
+    /// 可选的温度参数
+    pub temperature: Option<f32>,
+    /// 执行模式：prompt（默认）、elicitation
+    #[serde(default = "default_step_execution_mode")]
+    pub execution_mode: String,
+}
+
+fn default_step_execution_mode() -> String {
+    "prompt".to_string()
+}
+
 /// Skill 前置元数据
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SkillFrontmatter {
@@ -24,6 +46,9 @@ pub struct SkillFrontmatter {
     pub disable_model_invocation: Option<String>,
     #[serde(rename = "execution-mode")]
     pub execution_mode: Option<String>,
+    /// Workflow 步骤定义（JSON 格式）
+    #[serde(rename = "steps-json")]
+    pub steps_json: Option<String>,
 }
 
 /// 内部 Skill 定义（用于加载和执行）
@@ -40,6 +65,8 @@ pub struct LoadedSkillDefinition {
     pub provider: Option<String>,
     pub disable_model_invocation: bool,
     pub execution_mode: String,
+    /// Workflow 步骤定义（仅 execution_mode == "workflow" 时有效）
+    pub workflow_steps: Vec<WorkflowStep>,
 }
 
 /// 解析 Skill 文件的 frontmatter
@@ -77,6 +104,7 @@ pub fn parse_skill_frontmatter(content: &str) -> (SkillFrontmatter, String) {
                         frontmatter.disable_model_invocation = Some(clean_value)
                     }
                     "execution-mode" => frontmatter.execution_mode = Some(clean_value),
+                    "steps-json" => frontmatter.steps_json = Some(clean_value),
                     _ => {}
                 }
             }
@@ -117,6 +145,33 @@ pub fn parse_boolean(value: Option<&str>, default: bool) -> bool {
         .unwrap_or(default)
 }
 
+/// 解析 workflow steps
+///
+/// 支持两种来源：
+/// 1. frontmatter 中的 `steps-json` 字段（单行 JSON 数组）
+/// 2. markdown body 中的 `<!-- steps: [...] -->` 注释块
+pub fn parse_workflow_steps(steps_json: Option<&str>, markdown_content: &str) -> Vec<WorkflowStep> {
+    // 优先使用 frontmatter 中的 steps-json
+    if let Some(json) = steps_json {
+        if let Ok(steps) = serde_json::from_str::<Vec<WorkflowStep>>(json) {
+            return steps;
+        }
+    }
+
+    // 回退：从 markdown body 中解析 <!-- steps: [...] -->
+    let re = regex::Regex::new(r"<!--\s*steps:\s*([\s\S]*?)-->").unwrap();
+    if let Some(captures) = re.captures(markdown_content) {
+        if let Some(json_match) = captures.get(1) {
+            if let Ok(steps) = serde_json::from_str::<Vec<WorkflowStep>>(json_match.as_str().trim())
+            {
+                return steps;
+            }
+        }
+    }
+
+    Vec::new()
+}
+
 /// 从文件加载 Skill 定义
 pub fn load_skill_from_file(
     skill_name: &str,
@@ -140,6 +195,15 @@ pub fn load_skill_from_file(
         .clone()
         .unwrap_or_else(|| "prompt".to_string());
 
+    let workflow_steps = parse_workflow_steps(frontmatter.steps_json.as_deref(), &markdown_content);
+
+    // 如果有 steps 但 execution_mode 未显式设置，自动升级为 workflow
+    let execution_mode = if !workflow_steps.is_empty() && execution_mode == "prompt" {
+        "workflow".to_string()
+    } else {
+        execution_mode
+    };
+
     Ok(LoadedSkillDefinition {
         skill_name: skill_name.to_string(),
         display_name,
@@ -152,6 +216,7 @@ pub fn load_skill_from_file(
         provider: frontmatter.provider,
         disable_model_invocation,
         execution_mode,
+        workflow_steps,
     })
 }
 

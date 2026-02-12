@@ -25,6 +25,7 @@ const ToolbarContainer = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   padding: 8px 16px;
   background: hsl(var(--background));
   border-bottom: 1px solid hsl(var(--border));
@@ -35,18 +36,22 @@ const LeftSection = styled.div`
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: 1;
+  min-width: 0;
 `;
 
 const CenterSection = styled.div`
   display: flex;
   align-items: center;
   gap: 4px;
+  flex-shrink: 0;
 `;
 
 const RightSection = styled.div`
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
 `;
 
 const SongTitle = styled.h2`
@@ -64,6 +69,7 @@ const SongMeta = styled.span`
   font-size: 12px;
   color: hsl(var(--muted-foreground));
   margin-left: 8px;
+  white-space: nowrap;
 `;
 
 const IconButton = styled.button<{ $active?: boolean }>`
@@ -104,6 +110,8 @@ const ViewModeButton = styled.button<{ $active: boolean }>`
   padding: 6px 12px;
   border: none;
   border-radius: 6px;
+  white-space: nowrap;
+  flex-shrink: 0;
   background: ${({ $active }) =>
     $active ? "hsl(var(--accent))" : "transparent"};
   color: ${({ $active }) =>

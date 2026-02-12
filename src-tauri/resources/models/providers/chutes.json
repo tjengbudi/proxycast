@@ -186,8 +186,34 @@
       "status": "active",
       "release_date": "2025-08-05",
       "is_latest": true
+    },
+    {
+      "id": "moonshotai/Kimi-K2.5-TEE",
+      "name": "Kimi K2.5 TEE",
+      "family": "kimi",
+      "tier": "pro",
+      "capabilities": {
+        "vision": true,
+        "tools": true,
+        "streaming": true,
+        "json_mode": true,
+        "function_calling": true,
+        "reasoning": true
+      },
+      "pricing": {
+        "input": 0.6,
+        "output": 3,
+        "currency": "USD"
+      },
+      "limits": {
+        "context": 262144,
+        "max_output": 65535
+      },
+      "status": "active",
+      "release_date": "2026-01-27",
+      "is_latest": true
     }
   ],
-  "updated_at": "2026-01-12T00:00:00.000Z",
+  "updated_at": "2026-02-11T00:00:00.000Z",
   "source": "chutes.ai"
 }

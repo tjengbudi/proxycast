@@ -119,10 +119,10 @@ export function useLayoutTransition(
         };
       }
 
-      // chat 区域 - 左边 40%（画布打开时）
+      // chat 区域 - 画布打开时提升右侧聊天区宽度
       return {
         transition: `width ${duration}ms ease-out`,
-        width: mode === "chat-canvas" ? "40%" : "100%",
+        width: mode === "chat-canvas" ? "46%" : "100%",
       };
     },
     [transitionState, mergedConfig, mode],

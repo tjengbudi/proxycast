@@ -24,6 +24,11 @@ use aster::conversation::message::Message;
 
 use crate::agent::aster_state::SessionConfigBuilder;
 use crate::agent::{AsterAgentState, TauriAgentEvent};
+use crate::commands::skill_error::{
+    format_skill_error, map_find_skill_error, SKILL_ERR_CATALOG_UNAVAILABLE,
+    SKILL_ERR_EXECUTE_FAILED, SKILL_ERR_PROVIDER_UNAVAILABLE, SKILL_ERR_SESSION_INIT_FAILED,
+    SKILL_ERR_STREAM_FAILED,
+};
 use crate::database::DbConnection;
 use crate::skills::TauriExecutionCallback;
 use proxycast_agent::event_converter::convert_agent_event;
@@ -169,11 +174,14 @@ pub async fn execute_skill(
     );
 
     // 1. 从 registry 加载 skill（Requirements 3.2）
-    let skill = find_skill_by_name(&skill_name)?;
+    let skill = find_skill_by_name(&skill_name).map_err(map_find_skill_error)?;
 
     // 检查是否禁用了模型调用
     if skill.disable_model_invocation {
-        return Err(format!("Skill '{}' 已禁用模型调用，无法执行", skill_name));
+        return Err(format_skill_error(
+            SKILL_ERR_EXECUTE_FAILED,
+            format!("Skill '{}' 已禁用模型调用，无法执行", skill_name),
+        ));
     }
 
     // 2. 创建 TauriExecutionCallback
@@ -182,7 +190,12 @@ pub async fn execute_skill(
     // 3. 初始化 Agent（如果未初始化）
     if !aster_state.is_initialized().await {
         tracing::info!("[execute_skill] Agent 未初始化，开始初始化...");
-        aster_state.init_agent_with_db(&db).await?;
+        aster_state.init_agent_with_db(&db).await.map_err(|e| {
+            format_skill_error(
+                SKILL_ERR_SESSION_INIT_FAILED,
+                format!("初始化 Agent 失败: {e}"),
+            )
+        })?;
         tracing::info!("[execute_skill] Agent 初始化完成");
     }
 
@@ -239,7 +252,12 @@ pub async fn execute_skill(
     }
 
     configure_result.map_err(|e| {
-        format!("无法配置任何可用的 Provider（需要支持工具调用的 Provider，如 Anthropic、OpenAI 或 Google）: {e}")
+        format_skill_error(
+            SKILL_ERR_PROVIDER_UNAVAILABLE,
+            format!(
+                "无法配置任何可用的 Provider（需要支持工具调用的 Provider，如 Anthropic、OpenAI 或 Google）: {e}"
+            ),
+        )
     })?;
 
     tracing::info!(
@@ -248,36 +266,69 @@ pub async fn execute_skill(
         preferred_model
     );
 
-    // 5. 发送步骤开始事件
+    // 5. 根据 execution_mode 分支执行
+    if skill.execution_mode == "workflow" && !skill.workflow_steps.is_empty() {
+        // ========== Workflow 模式：按步骤顺序执行 ==========
+        execute_skill_workflow(
+            &app_handle,
+            &aster_state,
+            &skill,
+            &user_input,
+            &execution_id,
+            &session_id,
+            &callback,
+        )
+        .await
+    } else {
+        // ========== Prompt 模式：单次执行 ==========
+        execute_skill_prompt(
+            &app_handle,
+            &aster_state,
+            &skill,
+            &user_input,
+            &execution_id,
+            &session_id,
+            &callback,
+        )
+        .await
+    }
+}
+
+/// Prompt 模式执行（单步）
+async fn execute_skill_prompt(
+    app_handle: &tauri::AppHandle,
+    aster_state: &AsterAgentState,
+    skill: &proxycast_skills::LoadedSkillDefinition,
+    user_input: &str,
+    execution_id: &str,
+    session_id: &str,
+    callback: &TauriExecutionCallback,
+) -> Result<SkillExecutionResult, String> {
+    // 发送步骤开始事件
     callback.on_step_start("main", &skill.display_name, 1, 1);
 
-    // 6. 构建 SessionConfig，将 skill 内容作为 system_prompt
-    let session_config = SessionConfigBuilder::new(&session_id)
+    // 构建 SessionConfig
+    let session_config = SessionConfigBuilder::new(session_id)
         .system_prompt(&skill.markdown_content)
         .build();
 
-    // 7. 创建用户消息
-    let user_message = Message::user().with_text(&user_input);
+    let user_message = Message::user().with_text(user_input);
 
-    // 8. 获取 Agent 并执行
+    // 获取 Agent 并执行
     let agent_arc = aster_state.get_agent_arc();
     let guard = agent_arc.read().await;
-    let agent = guard.as_ref().ok_or("Agent not initialized")?;
+    let agent = guard.as_ref().ok_or_else(|| {
+        format_skill_error(SKILL_ERR_SESSION_INIT_FAILED, "Agent not initialized")
+    })?;
 
-    // 创建取消令牌
-    let cancel_token = aster_state.create_cancel_token(&session_id).await;
-
-    // 获取事件流
+    let cancel_token = aster_state.create_cancel_token(session_id).await;
     let stream_result = agent
         .reply(user_message, session_config, Some(cancel_token.clone()))
         .await;
 
-    // 9. 处理流式事件并收集结果
     let mut final_output = String::new();
     let mut has_error = false;
     let mut error_message: Option<String> = None;
-
-    // 用于发送流式事件的 event_name
     let event_name = format!("skill-exec-{}", execution_id);
 
     match stream_result {
@@ -285,16 +336,11 @@ pub async fn execute_skill(
             while let Some(event_result) = stream.next().await {
                 match event_result {
                     Ok(agent_event) => {
-                        // 转换 Aster 事件为 Tauri 事件
                         let tauri_events = convert_agent_event(agent_event);
-
                         for tauri_event in tauri_events {
-                            // 收集文本输出
                             if let TauriAgentEvent::TextDelta { ref text } = tauri_event {
                                 final_output.push_str(text);
                             }
-
-                            // 发送事件到前端
                             if let Err(e) = app_handle.emit(&event_name, &tauri_event) {
                                 tracing::error!("[execute_skill] 发送事件失败: {}", e);
                             }
@@ -302,13 +348,15 @@ pub async fn execute_skill(
                     }
                     Err(e) => {
                         has_error = true;
-                        error_message = Some(format!("Stream error: {e}"));
+                        error_message = Some(format_skill_error(
+                            SKILL_ERR_STREAM_FAILED,
+                            format!("Stream error: {e}"),
+                        ));
                         tracing::error!("[execute_skill] 流处理错误: {}", e);
                     }
                 }
             }
 
-            // 发送完成事件
             let done_event = TauriAgentEvent::FinalDone { usage: None };
             if let Err(e) = app_handle.emit(&event_name, &done_event) {
                 tracing::error!("[execute_skill] 发送完成事件失败: {}", e);
@@ -316,25 +364,21 @@ pub async fn execute_skill(
         }
         Err(e) => {
             has_error = true;
-            error_message = Some(format!("Agent error: {e}"));
+            error_message = Some(format_skill_error(
+                SKILL_ERR_STREAM_FAILED,
+                format!("Agent error: {e}"),
+            ));
             tracing::error!("[execute_skill] Agent 错误: {}", e);
         }
     }
 
-    // 清理取消令牌
-    aster_state.remove_cancel_token(&session_id).await;
+    aster_state.remove_cancel_token(session_id).await;
 
-    // 10. 返回执行结果（Requirements 3.5）
     if has_error {
-        let err_msg = error_message.unwrap_or_else(|| "Unknown error".to_string());
+        let err_msg = error_message
+            .unwrap_or_else(|| format_skill_error(SKILL_ERR_EXECUTE_FAILED, "Unknown error"));
         callback.on_step_error("main", &err_msg, false);
         callback.on_complete(false, None, Some(&err_msg));
-
-        tracing::error!(
-            "[execute_skill] Skill 执行失败: name={}, error={}",
-            skill_name,
-            err_msg
-        );
 
         Ok(SkillExecutionResult {
             success: false,
@@ -342,7 +386,7 @@ pub async fn execute_skill(
             error: Some(err_msg.clone()),
             steps_completed: vec![StepResult {
                 step_id: "main".to_string(),
-                step_name: skill.display_name,
+                step_name: skill.display_name.clone(),
                 success: false,
                 output: None,
                 error: Some(err_msg),
@@ -352,25 +396,196 @@ pub async fn execute_skill(
         callback.on_step_complete("main", &final_output);
         callback.on_complete(true, Some(&final_output), None);
 
-        tracing::info!(
-            "[execute_skill] Skill 执行成功: name={}, output_len={}",
-            skill_name,
-            final_output.len()
-        );
-
         Ok(SkillExecutionResult {
             success: true,
             output: Some(final_output.clone()),
             error: None,
             steps_completed: vec![StepResult {
                 step_id: "main".to_string(),
-                step_name: skill.display_name,
+                step_name: skill.display_name.clone(),
                 success: true,
                 output: Some(final_output),
                 error: None,
             }],
         })
     }
+}
+
+/// Workflow 模式执行（多步骤顺序执行）
+async fn execute_skill_workflow(
+    app_handle: &tauri::AppHandle,
+    aster_state: &AsterAgentState,
+    skill: &proxycast_skills::LoadedSkillDefinition,
+    user_input: &str,
+    execution_id: &str,
+    session_id: &str,
+    callback: &TauriExecutionCallback,
+) -> Result<SkillExecutionResult, String> {
+    let steps = &skill.workflow_steps;
+    let total_steps = steps.len();
+    let event_name = format!("skill-exec-{}", execution_id);
+    let mut steps_completed = Vec::new();
+    let mut accumulated_context = user_input.to_string();
+    let mut final_output = String::new();
+
+    tracing::info!(
+        "[execute_skill_workflow] 开始 workflow 执行: steps={}, skill={}",
+        total_steps,
+        skill.skill_name
+    );
+
+    for (idx, step) in steps.iter().enumerate() {
+        let step_num = idx + 1;
+
+        // 发送步骤开始事件
+        callback.on_step_start(&step.id, &step.name, step_num, total_steps);
+
+        tracing::info!(
+            "[execute_skill_workflow] 执行步骤 {}/{}: id={}, name={}",
+            step_num,
+            total_steps,
+            step.id,
+            step.name
+        );
+
+        // 构建该步骤的 system_prompt：基础 skill prompt + 步骤 prompt
+        let step_system_prompt = format!(
+            "{}\n\n---\n\n## 当前步骤: {} ({}/{})\n\n{}",
+            skill.markdown_content, step.name, step_num, total_steps, step.prompt
+        );
+
+        let step_session_id = format!("{}-step-{}", session_id, step.id);
+        let session_config = SessionConfigBuilder::new(&step_session_id)
+            .system_prompt(&step_system_prompt)
+            .build();
+
+        // 用户消息 = 原始输入 + 前序步骤的累积上下文
+        let step_input = if idx == 0 {
+            accumulated_context.clone()
+        } else {
+            format!(
+                "原始需求：{}\n\n前序步骤输出：\n{}",
+                user_input, accumulated_context
+            )
+        };
+
+        let user_message = Message::user().with_text(&step_input);
+
+        // 获取 Agent 并执行
+        let agent_arc = aster_state.get_agent_arc();
+        let guard = agent_arc.read().await;
+        let agent = guard.as_ref().ok_or_else(|| {
+            format_skill_error(SKILL_ERR_SESSION_INIT_FAILED, "Agent not initialized")
+        })?;
+
+        let cancel_token = aster_state.create_cancel_token(&step_session_id).await;
+        let stream_result = agent
+            .reply(user_message, session_config, Some(cancel_token.clone()))
+            .await;
+
+        let mut step_output = String::new();
+        let mut step_error: Option<String> = None;
+
+        match stream_result {
+            Ok(mut stream) => {
+                while let Some(event_result) = stream.next().await {
+                    match event_result {
+                        Ok(agent_event) => {
+                            let tauri_events = convert_agent_event(agent_event);
+                            for tauri_event in tauri_events {
+                                if let TauriAgentEvent::TextDelta { ref text } = tauri_event {
+                                    step_output.push_str(text);
+                                }
+                                if let Err(e) = app_handle.emit(&event_name, &tauri_event) {
+                                    tracing::error!("[execute_skill_workflow] 发送事件失败: {}", e);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            step_error = Some(format!("Stream error: {e}"));
+                            tracing::error!(
+                                "[execute_skill_workflow] 步骤 {} 流处理错误: {}",
+                                step.id,
+                                e
+                            );
+                            break;
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                step_error = Some(format!("Agent error: {e}"));
+                tracing::error!(
+                    "[execute_skill_workflow] 步骤 {} Agent 错误: {}",
+                    step.id,
+                    e
+                );
+            }
+        }
+
+        aster_state.remove_cancel_token(&step_session_id).await;
+
+        if let Some(err) = &step_error {
+            callback.on_step_error(&step.id, err, false);
+            steps_completed.push(StepResult {
+                step_id: step.id.clone(),
+                step_name: step.name.clone(),
+                success: false,
+                output: None,
+                error: Some(err.clone()),
+            });
+
+            // 步骤失败，终止 workflow
+            let err_msg = format_skill_error(
+                SKILL_ERR_EXECUTE_FAILED,
+                format!("步骤 '{}' 执行失败: {}", step.name, err),
+            );
+            callback.on_complete(false, None, Some(&err_msg));
+
+            let done_event = TauriAgentEvent::FinalDone { usage: None };
+            let _ = app_handle.emit(&event_name, &done_event);
+
+            return Ok(SkillExecutionResult {
+                success: false,
+                output: None,
+                error: Some(err_msg),
+                steps_completed,
+            });
+        }
+
+        // 步骤成功
+        callback.on_step_complete(&step.id, &step_output);
+        steps_completed.push(StepResult {
+            step_id: step.id.clone(),
+            step_name: step.name.clone(),
+            success: true,
+            output: Some(step_output.clone()),
+            error: None,
+        });
+
+        // 累积上下文供下一步使用
+        accumulated_context = step_output.clone();
+        final_output = step_output;
+    }
+
+    // 所有步骤完成
+    callback.on_complete(true, Some(&final_output), None);
+
+    let done_event = TauriAgentEvent::FinalDone { usage: None };
+    let _ = app_handle.emit(&event_name, &done_event);
+
+    tracing::info!(
+        "[execute_skill_workflow] Workflow 执行完成: skill={}, steps_completed={}",
+        skill.skill_name,
+        steps_completed.len()
+    );
+
+    Ok(SkillExecutionResult {
+        success: true,
+        output: Some(final_output),
+        error: None,
+        steps_completed,
+    })
 }
 
 /// 列出可执行的 Skills
@@ -388,8 +603,8 @@ pub async fn execute_skill(
 /// - 4.4: 过滤 disable_model_invocation=true 的 skills
 #[tauri::command]
 pub async fn list_executable_skills() -> Result<Vec<ExecutableSkillInfo>, String> {
-    let skills_dir =
-        get_proxycast_skills_dir().ok_or_else(|| "无法获取 Skills 目录".to_string())?;
+    let skills_dir = get_proxycast_skills_dir()
+        .ok_or_else(|| format_skill_error(SKILL_ERR_CATALOG_UNAVAILABLE, "无法获取 Skills 目录"))?;
 
     // 加载所有 skills
     let all_skills = load_skills_from_directory(&skills_dir);
@@ -437,7 +652,7 @@ pub async fn list_executable_skills() -> Result<Vec<ExecutableSkillInfo>, String
 #[tauri::command]
 pub async fn get_skill_detail(skill_name: String) -> Result<SkillDetailInfo, String> {
     // 查找 skill（Requirements 5.1, 5.4）
-    let skill = find_skill_by_name(&skill_name)?;
+    let skill = find_skill_by_name(&skill_name).map_err(map_find_skill_error)?;
 
     // 转换为 SkillDetailInfo（Requirements 5.2, 5.3）
     let detail = SkillDetailInfo {
@@ -452,7 +667,21 @@ pub async fn get_skill_detail(skill_name: String) -> Result<SkillDetailInfo, Str
             argument_hint: skill.argument_hint,
         },
         markdown_content: skill.markdown_content,
-        workflow_steps: None, // TODO: 解析 workflow 步骤（如果有）
+        workflow_steps: if skill.workflow_steps.is_empty() {
+            None
+        } else {
+            Some(
+                skill
+                    .workflow_steps
+                    .iter()
+                    .map(|s| WorkflowStepInfo {
+                        id: s.id.clone(),
+                        name: s.name.clone(),
+                        dependencies: Vec::new(),
+                    })
+                    .collect(),
+            )
+        },
         allowed_tools: skill.allowed_tools,
         when_to_use: skill.when_to_use,
     };

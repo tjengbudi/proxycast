@@ -61,6 +61,7 @@ import {
 } from "@/lib/api/memory";
 import type { Page, PageParams } from "@/types/page";
 import { SettingsTabs } from "@/types/settings";
+import { buildHomeAgentParams } from "@/lib/workspace/navigation";
 
 import type { MessageImage } from "./types";
 import type { ThemeType, LayoutMode } from "@/components/content-creator/types";
@@ -116,7 +117,7 @@ const ChatContent = styled.div`
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  padding: 0 16px;
+  padding: 0 6px;
   overflow: hidden;
   height: 100%;
 `;
@@ -179,7 +180,9 @@ export function AgentChatPage({
   projectId: externalProjectId,
   contentId,
   theme: initialTheme,
+  initialCreationMode,
   lockTheme = false,
+  hideHistoryToggle = false,
   newChatAt,
   onRecommendationClick: _onRecommendationClick,
   onHasMessagesChange,
@@ -188,7 +191,9 @@ export function AgentChatPage({
   projectId?: string;
   contentId?: string;
   theme?: string;
+  initialCreationMode?: CreationMode;
   lockTheme?: boolean;
+  hideHistoryToggle?: boolean;
   newChatAt?: number;
   onRecommendationClick?: (shortLabel: string, fullPrompt: string) => void;
   onHasMessagesChange?: (hasMessages: boolean) => void;
@@ -200,13 +205,20 @@ export function AgentChatPage({
   const [activeTheme, setActiveTheme] = useState<string>(
     normalizeInitialTheme(initialTheme),
   );
-  const [creationMode, setCreationMode] = useState<CreationMode>("guided");
+  const [creationMode, setCreationMode] = useState<CreationMode>(
+    initialCreationMode ?? "guided",
+  );
   const [layoutMode, setLayoutMode] = useState<LayoutMode>("chat");
 
   useEffect(() => {
     if (!initialTheme) return;
     setActiveTheme(normalizeInitialTheme(initialTheme));
   }, [initialTheme]);
+
+  useEffect(() => {
+    if (!initialCreationMode) return;
+    setCreationMode(initialCreationMode);
+  }, [initialCreationMode]);
 
   // 内部 projectId 状态（当外部未提供时使用）
   const [internalProjectId, setInternalProjectId] = useState<string | null>(
@@ -764,7 +776,7 @@ export function AgentChatPage({
     setProjectMemory(null);
     setActiveTheme("general");
     setCreationMode("guided");
-    _onNavigate?.("agent", { theme: "general", lockTheme: false });
+    _onNavigate?.("agent", buildHomeAgentParams());
   }, [clearMessages, _onNavigate]);
 
   // 当开始对话时自动折叠侧边栏
@@ -780,21 +792,40 @@ export function AgentChatPage({
     }
   }, [hasMessages]);
 
-  // 当有文件时默认在画布中显示最后一个文件
+  // 当有文件时默认在画布中显示最新文件（按更新时间）
   useEffect(() => {
     if (taskFiles.length > 0) {
-      const lastFile = taskFiles[taskFiles.length - 1];
+      const latestFile = taskFiles.reduce<TaskFile | null>(
+        (candidate, file) => {
+          if (!candidate) {
+            return file;
+          }
+          const candidateTimestamp = Math.max(
+            candidate.updatedAt,
+            candidate.createdAt,
+          );
+          const fileTimestamp = Math.max(file.updatedAt, file.createdAt);
+          return fileTimestamp >= candidateTimestamp ? file : candidate;
+        },
+        null,
+      );
+
+      if (!latestFile) {
+        return;
+      }
+
       // 设置选中的文件
-      setSelectedFileId(lastFile.id);
+      setSelectedFileId(latestFile.id);
       // 如果文件有内容，在画布中显示
-      if (lastFile.content) {
+      const latestContent = latestFile.content;
+      if (latestContent) {
         setCanvasState((prev) => {
           if (mappedTheme === "music") {
-            const sections = parseLyrics(lastFile.content!);
+            const sections = parseLyrics(latestContent);
             if (!prev || prev.type !== "music") {
               const musicState = createInitialMusicState();
               musicState.sections = sections;
-              const titleMatch = lastFile.content!.match(/^#\s*(.+)$/m);
+              const titleMatch = latestContent.match(/^#\s*(.+)$/m);
               if (titleMatch) {
                 musicState.spec.title = titleMatch[1].trim();
               }
@@ -803,9 +834,9 @@ export function AgentChatPage({
             return { ...prev, sections };
           }
           if (!prev || prev.type !== "document") {
-            return createInitialDocumentState(lastFile.content!);
+            return createInitialDocumentState(latestContent);
           }
-          return { ...prev, content: lastFile.content! };
+          return { ...prev, content: latestContent };
         });
         setLayoutMode("chat-canvas");
       }
@@ -1510,6 +1541,7 @@ export function AgentChatPage({
         <ChatNavbar
           isRunning={isSending}
           onToggleHistory={handleToggleSidebar}
+          showHistoryToggle={!hideHistoryToggle}
           onToggleFullscreen={() => {}}
           projectId={projectId ?? null}
           onProjectChange={(newProjectId) => setInternalProjectId(newProjectId)}

@@ -5,6 +5,7 @@
 pub mod api;
 pub mod api_key_provider_utils;
 pub mod batch_api;
+pub mod batch_executor;
 pub mod credentials_api;
 pub mod image_handler;
 pub mod kiro_credential;

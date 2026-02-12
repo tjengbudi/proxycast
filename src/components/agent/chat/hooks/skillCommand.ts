@@ -7,6 +7,10 @@ import {
   type ExecutableSkillInfo,
 } from "@/lib/api/skill-execution";
 import type { ActionRequired, Message } from "../types";
+import {
+  formatSkillFailureMessage,
+  resolveSkillFailure,
+} from "../utils/skillFailure";
 
 /** 解析 /skill-name args 命令 */
 export interface ParsedSkillCommand {
@@ -26,6 +30,8 @@ export interface SlashSkillExecutionContext {
   setIsSending: (value: boolean) => void;
   setCurrentAssistantMsgId: (id: string | null) => void;
   setStreamUnlisten: (unlisten: UnlistenFn | null) => void;
+  setActiveSessionIdForStop: (sessionId: string | null) => void;
+  isExecutionCancelled: () => boolean;
   playTypewriterSound: () => void;
   playToolcallSound: () => void;
   onWriteFile?: (content: string, fileName: string) => void;
@@ -176,15 +182,26 @@ function tryHandleToolWriteFile(
   }
 }
 
+interface MatchedSkillResult {
+  matchedSkill: ExecutableSkillInfo | null;
+  catalogLoadFailed: boolean;
+}
+
 async function findMatchedSkill(
   skillName: string,
-): Promise<ExecutableSkillInfo | null> {
+): Promise<MatchedSkillResult> {
   try {
     const skills = await skillExecutionApi.listExecutableSkills();
-    return skills.find((skill) => skill.name === skillName) || null;
+    return {
+      matchedSkill: skills.find((skill) => skill.name === skillName) || null,
+      catalogLoadFailed: false,
+    };
   } catch (error) {
-    console.warn("[SkillCommand] 获取可执行 Skills 失败，回退普通对话:", error);
-    return null;
+    console.warn("[SkillCommand] 获取可执行 Skills 失败:", error);
+    return {
+      matchedSkill: null,
+      catalogLoadFailed: true,
+    };
   }
 }
 
@@ -207,37 +224,70 @@ export async function tryExecuteSlashSkillCommand(
     setIsSending,
     setCurrentAssistantMsgId,
     setStreamUnlisten,
+    setActiveSessionIdForStop,
+    isExecutionCancelled,
     playTypewriterSound,
     playToolcallSound,
     onWriteFile,
   } = ctx;
 
-  const matchedSkill = await findMatchedSkill(command.skillName);
+  const { matchedSkill, catalogLoadFailed } = await findMatchedSkill(
+    command.skillName,
+  );
   if (!matchedSkill) {
-    return false;
-  }
+    const failure = resolveSkillFailure(
+      catalogLoadFailed
+        ? "skill_catalog_unavailable|无法加载可执行 Skills 列表"
+        : `skill_not_found|未找到名为 "${command.skillName}" 的 Skill`,
+    );
+    const failureText = formatSkillFailureMessage(failure);
 
-  const activeSessionId = await ensureSession();
-  if (!activeSessionId) {
     setMessages((prev) =>
       prev.map((msg) =>
         msg.id === assistantMsgId
           ? {
               ...msg,
-              content: "Skill 执行失败：无法创建会话",
+              content: failureText,
               isThinking: false,
               thinkingContent: undefined,
-              contentParts: [
-                { type: "text" as const, text: "Skill 执行失败：无法创建会话" },
-              ],
+              contentParts: [{ type: "text" as const, text: failureText }],
             }
           : msg,
       ),
     );
     setIsSending(false);
     setCurrentAssistantMsgId(null);
+    setActiveSessionIdForStop(null);
     return true;
   }
+
+  const activeSessionId = await ensureSession();
+  if (!activeSessionId) {
+    const failure = resolveSkillFailure(
+      "skill_session_init_failed|无法创建或恢复 Skill 会话",
+    );
+    const failureText = formatSkillFailureMessage(failure);
+
+    setMessages((prev) =>
+      prev.map((msg) =>
+        msg.id === assistantMsgId
+          ? {
+              ...msg,
+              content: failureText,
+              isThinking: false,
+              thinkingContent: undefined,
+              contentParts: [{ type: "text" as const, text: failureText }],
+            }
+          : msg,
+      ),
+    );
+    setIsSending(false);
+    setCurrentAssistantMsgId(null);
+    setActiveSessionIdForStop(null);
+    return true;
+  }
+
+  setActiveSessionIdForStop(activeSessionId);
 
   setMessages((prev) =>
     prev.map((msg) =>
@@ -265,19 +315,46 @@ export async function tryExecuteSlashSkillCommand(
 
   let accumulatedContent = "";
   let skillUnlisten: UnlistenFn | null = null;
+  let stepUnlisteners: UnlistenFn[] = [];
 
   const cleanup = () => {
     if (skillUnlisten) {
       skillUnlisten();
       skillUnlisten = null;
     }
+    for (const ul of stepUnlisteners) {
+      ul();
+    }
+    stepUnlisteners = [];
     setStreamUnlisten(null);
     setIsSending(false);
     setCurrentAssistantMsgId(null);
+    setActiveSessionIdForStop(null);
   };
 
   try {
     const eventName = `skill-exec-${assistantMsgId}`;
+
+    // 监听 workflow 步骤事件
+    const stepStartUl = await safeListen<{
+      execution_id: string;
+      step_id: string;
+      step_name: string;
+      current_step: number;
+      total_steps: number;
+    }>("skill:step_start", ({ payload }) => {
+      if (payload.execution_id !== assistantMsgId) return;
+      // 注入步骤分隔标记
+      const marker =
+        payload.total_steps > 1
+          ? `\n\n---\n**步骤 ${payload.current_step}/${payload.total_steps}: ${payload.step_name}**\n\n`
+          : "";
+      if (marker) {
+        accumulatedContent += marker;
+        setMessages((prev) => appendTextPart(prev, assistantMsgId, marker));
+      }
+    });
+    stepUnlisteners.push(stepStartUl);
 
     skillUnlisten = await safeListen<StreamEvent>(eventName, ({ payload }) => {
       const streamEvent = parseStreamEvent(payload as unknown);
@@ -477,10 +554,38 @@ export async function tryExecuteSlashSkillCommand(
       `[SkillCommand] 执行完成: name=${command.skillName}, success=${result.success}, output_len=${result.output?.length ?? 0}, stream_stats=${JSON.stringify(streamCounters)}`,
     );
 
+    if (isExecutionCancelled()) {
+      console.info(
+        `[SkillCommand] 执行结果已忽略（用户已取消）: ${command.skillName}`,
+      );
+      cleanup();
+      return true;
+    }
+
     const hasStreamedContent = accumulatedContent.trim().length > 0;
-    const finalContent = hasStreamedContent
-      ? accumulatedContent
-      : result.output || result.error || "Skill 执行完成";
+    const failure = !result.success
+      ? resolveSkillFailure(
+          result.error || "skill_execute_failed|Skill 执行返回失败",
+        )
+      : null;
+
+    const failureText = failure ? formatSkillFailureMessage(failure) : "";
+
+    const finalContent = failure
+      ? hasStreamedContent
+        ? `${accumulatedContent}
+
+${failureText}`
+        : failureText
+      : hasStreamedContent
+        ? accumulatedContent
+        : result.output || "Skill 执行完成";
+
+    if (failure) {
+      console.warn(
+        `[SkillCommand] 执行完成但返回失败: name=${command.skillName}, code=${failure.code}, message=${failure.message}`,
+      );
+    }
 
     setMessages((prev) =>
       prev.map((msg) => {
@@ -504,7 +609,21 @@ export async function tryExecuteSlashSkillCommand(
     cleanup();
     return true;
   } catch (error) {
-    console.error(`[SkillCommand] 执行失败: ${command.skillName}`, error);
+    if (isExecutionCancelled()) {
+      console.info(
+        `[SkillCommand] 执行异常已忽略（用户已取消）: ${command.skillName}`,
+      );
+      cleanup();
+      return true;
+    }
+
+    const failure = resolveSkillFailure(error);
+    const failureText = formatSkillFailureMessage(failure);
+
+    console.error(
+      `[SkillCommand] 执行失败: ${command.skillName}, code=${failure.code}`,
+      error,
+    );
 
     setMessages((prev) =>
       prev.map((msg) =>
@@ -513,11 +632,11 @@ export async function tryExecuteSlashSkillCommand(
               ...msg,
               isThinking: false,
               thinkingContent: undefined,
-              content: `Skill 执行失败: ${error instanceof Error ? error.message : String(error)}`,
+              content: failureText,
               contentParts: [
                 {
                   type: "text",
-                  text: `Skill 执行失败: ${error instanceof Error ? error.message : String(error)}`,
+                  text: failureText,
                 },
               ],
             }

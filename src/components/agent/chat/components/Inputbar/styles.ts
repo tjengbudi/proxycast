@@ -27,10 +27,10 @@ export const Container = styled.div`
   flex-direction: column;
   position: relative;
   z-index: 2;
-  padding: 0 18px 18px 18px; /* Cherry Studio Exact: 0 18px 18px 18px */
+  padding: 0 8px 12px 8px;
   width: 100%;
-  max-width: 900px;
-  margin: 0 auto;
+  max-width: none;
+  margin: 0;
 `;
 
 export const InputBarContainer = styled.div`
@@ -102,6 +102,7 @@ export const BottomBar = styled.div`
   position: relative;
   z-index: 2;
   flex-shrink: 0;
+  min-width: 0;
 `;
 // ... (LeftSection and RightSection seem fine without vars, skipping for brevity of replace block if possible but might as well include to be safe or target specific chunks)
 
@@ -112,13 +113,26 @@ export const LeftSection = styled.div`
   align-items: center;
   flex: 1;
   min-width: 0;
-  /* Cherry Studio uses ToolWrapper with margin-right: 6px, handled in component or here */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+
+  > * {
+    flex-shrink: 0;
+  }
 `;
 
 export const RightSection = styled.div`
   display: flex;
   align-items: center;
   gap: 6px; /* Cherry Studio Exact: 6px */
+  flex-shrink: 0;
+  margin-left: 4px;
 `;
 
 // --- InputbarTools Styles ---

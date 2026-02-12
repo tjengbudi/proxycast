@@ -7,6 +7,7 @@ import { Navbar } from "../styles";
 interface ChatNavbarProps {
   isRunning: boolean;
   onToggleHistory: () => void;
+  showHistoryToggle?: boolean;
   onToggleFullscreen: () => void;
   onToggleSettings?: () => void;
   onBackHome?: () => void;
@@ -18,6 +19,7 @@ interface ChatNavbarProps {
 export const ChatNavbar: React.FC<ChatNavbarProps> = ({
   isRunning: _isRunning,
   onToggleHistory,
+  showHistoryToggle = true,
   onToggleFullscreen: _onToggleFullscreen,
   onToggleSettings,
   onBackHome,
@@ -39,14 +41,16 @@ export const ChatNavbar: React.FC<ChatNavbarProps> = ({
             <Home size={18} />
           </Button>
         )}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 text-muted-foreground"
-          onClick={onToggleHistory}
-        >
-          <Box size={18} />
-        </Button>
+        {showHistoryToggle && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-muted-foreground"
+            onClick={onToggleHistory}
+          >
+            <Box size={18} />
+          </Button>
+        )}
       </div>
 
       <div className="flex-1" />

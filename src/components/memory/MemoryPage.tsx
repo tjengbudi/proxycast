@@ -30,6 +30,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { buildHomeAgentParams } from "@/lib/workspace/navigation";
 import type { Page, PageParams } from "@/types/page";
 import {
   cleanupMemory,
@@ -757,10 +758,7 @@ export function MemoryPage({ onNavigate }: MemoryPageProps) {
 
   const handleBackToHome = useCallback(() => {
     if (onNavigate) {
-      onNavigate("agent", {
-        theme: "general",
-        lockTheme: false,
-      });
+      onNavigate("agent", buildHomeAgentParams());
     }
   }, [onNavigate]);
 

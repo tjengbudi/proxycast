@@ -1,15 +1,6 @@
 import React from "react";
-import {
-  Paperclip,
-  Lightbulb,
-  Globe,
-  Zap,
-  Brush,
-  MessageSquareDiff,
-  Maximize2,
-  PanelRight,
-} from "lucide-react";
-import { ToolButton, Divider } from "../styles";
+import { Paperclip, Lightbulb, Globe, MessageSquareDiff } from "lucide-react";
+import { ToolButton } from "../styles";
 import {
   Tooltip,
   TooltipContent,
@@ -20,14 +11,13 @@ import {
 interface InputbarToolsProps {
   onToolClick?: (tool: string) => void;
   activeTools?: Record<string, boolean>;
-  /** 画布是否打开 */
+  /** 画布是否打开（兼容保留，不再展示画布图标） */
   isCanvasOpen?: boolean;
 }
 
 export const InputbarTools: React.FC<InputbarToolsProps> = ({
   onToolClick,
   activeTools = {},
-  isCanvasOpen = false,
 }) => {
   return (
     <TooltipProvider>
@@ -80,49 +70,6 @@ export const InputbarTools: React.FC<InputbarToolsProps> = ({
           <TooltipContent side="top">
             联网搜索 {activeTools["web_search"] ? "(已开启)" : ""}
           </TooltipContent>
-        </Tooltip>
-
-        <Divider />
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <ToolButton onClick={() => onToolClick?.("quick_action")}>
-              <Zap />
-            </ToolButton>
-          </TooltipTrigger>
-          <TooltipContent side="top">快捷指令</TooltipContent>
-        </Tooltip>
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <ToolButton onClick={() => onToolClick?.("fullscreen")}>
-              <Maximize2 />
-            </ToolButton>
-          </TooltipTrigger>
-          <TooltipContent side="top">全屏编辑</TooltipContent>
-        </Tooltip>
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <ToolButton
-              onClick={() => onToolClick?.("canvas")}
-              className={isCanvasOpen ? "active" : ""}
-            >
-              <PanelRight className={isCanvasOpen ? "text-primary" : ""} />
-            </ToolButton>
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            {isCanvasOpen ? "关闭画布" : "打开画布"}
-          </TooltipContent>
-        </Tooltip>
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <ToolButton onClick={() => onToolClick?.("clear")}>
-              <Brush />
-            </ToolButton>
-          </TooltipTrigger>
-          <TooltipContent side="top">清除输入</TooltipContent>
         </Tooltip>
       </div>
     </TooltipProvider>

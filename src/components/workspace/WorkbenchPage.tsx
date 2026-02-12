@@ -47,6 +47,7 @@ import {
   resolveProjectRootPath,
   listContents,
   listProjects,
+  getContent,
   updateContent,
 } from "@/lib/api/project";
 import type {
@@ -57,7 +58,9 @@ import type {
 } from "@/types/page";
 import { toast } from "sonner";
 import { AgentChatPage } from "@/components/agent";
+import { buildHomeAgentParams } from "@/lib/workspace/navigation";
 import { ProjectDetailPage } from "@/components/projects/ProjectDetailPage";
+import type { CreationMode } from "@/components/content-creator/types";
 
 export interface WorkbenchPageProps {
   onNavigate?: (page: Page, params?: PageParams) => void;
@@ -65,9 +68,51 @@ export interface WorkbenchPageProps {
   contentId?: string;
   theme: WorkspaceTheme;
   viewMode?: WorkspaceViewMode;
+  resetAt?: number;
 }
 
 type WorkspaceMode = WorkspaceViewMode;
+
+const DEFAULT_CREATION_MODE: CreationMode = "guided";
+
+const CREATION_MODE_OPTIONS: Array<{
+  value: CreationMode;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "guided",
+    label: "引导模式",
+    description: "AI 分步骤提问引导，适合精细创作",
+  },
+  {
+    value: "fast",
+    label: "快速模式",
+    description: "AI 先生成初稿，适合快速起稿",
+  },
+  {
+    value: "hybrid",
+    label: "混合模式",
+    description: "AI 与你协作，平衡质量和效率",
+  },
+  {
+    value: "framework",
+    label: "框架模式",
+    description: "你定结构，AI 按框架补全内容",
+  },
+];
+
+function parseCreationMode(value: unknown): CreationMode | null {
+  if (
+    value === "guided" ||
+    value === "fast" ||
+    value === "hybrid" ||
+    value === "framework"
+  ) {
+    return value;
+  }
+  return null;
+}
 
 export function WorkbenchPage({
   onNavigate,
@@ -75,6 +120,7 @@ export function WorkbenchPage({
   contentId: initialContentId,
   theme,
   viewMode: initialViewMode,
+  resetAt,
 }: WorkbenchPageProps) {
   const [showLeftSidebar, setShowLeftSidebar] = useState(true);
   const [showRightSidebar, setShowRightSidebar] = useState(false);
@@ -98,9 +144,16 @@ export function WorkbenchPage({
   const [contentQuery, setContentQuery] = useState("");
 
   const [createProjectDialogOpen, setCreateProjectDialogOpen] = useState(false);
+  const [createContentDialogOpen, setCreateContentDialogOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [workspaceProjectsRoot, setWorkspaceProjectsRoot] = useState("");
   const [creatingProject, setCreatingProject] = useState(false);
+  const [creatingContent, setCreatingContent] = useState(false);
+  const [selectedCreationMode, setSelectedCreationMode] =
+    useState<CreationMode>(DEFAULT_CREATION_MODE);
+  const [contentCreationModes, setContentCreationModes] = useState<
+    Record<string, CreationMode>
+  >({});
   const [resolvedProjectPath, setResolvedProjectPath] = useState("");
   const [pathChecking, setPathChecking] = useState(false);
   const [pathConflictMessage, setPathConflictMessage] = useState("");
@@ -258,27 +311,52 @@ export function WorkbenchPage({
     }
   }, [loadProjects, newProjectName, theme]);
 
-  const handleCreateContent = useCallback(async () => {
+  const handleOpenCreateContentDialog = useCallback(() => {
     if (!selectedProjectId) {
       return;
     }
 
-    try {
-      const defaultType = getDefaultContentTypeForProject(theme as ProjectType);
-      const created = await createContent({
-        project_id: selectedProjectId,
-        title: `新${getContentTypeLabel(defaultType)}`,
-        content_type: defaultType,
-      });
+    setSelectedCreationMode(DEFAULT_CREATION_MODE);
+    setCreateContentDialogOpen(true);
+  }, [selectedProjectId]);
 
-      await loadContents(selectedProjectId);
-      handleEnterWorkspace(created.id);
-      toast.success("已创建新文稿");
-    } catch (error) {
-      console.error("创建文稿失败:", error);
-      toast.error("创建文稿失败");
-    }
-  }, [handleEnterWorkspace, loadContents, selectedProjectId, theme]);
+  const handleCreateContent = useCallback(
+    async (creationMode: CreationMode) => {
+      if (!selectedProjectId) {
+        return;
+      }
+
+      setCreatingContent(true);
+      try {
+        const defaultType = getDefaultContentTypeForProject(
+          theme as ProjectType,
+        );
+        const created = await createContent({
+          project_id: selectedProjectId,
+          title: `新${getContentTypeLabel(defaultType)}`,
+          content_type: defaultType,
+          metadata: {
+            creationMode,
+          },
+        });
+
+        setContentCreationModes((previous) => ({
+          ...previous,
+          [created.id]: creationMode,
+        }));
+        setCreateContentDialogOpen(false);
+        await loadContents(selectedProjectId);
+        handleEnterWorkspace(created.id);
+        toast.success("已创建新文稿");
+      } catch (error) {
+        console.error("创建文稿失败:", error);
+        toast.error("创建文稿失败");
+      } finally {
+        setCreatingContent(false);
+      }
+    },
+    [handleEnterWorkspace, loadContents, selectedProjectId, theme],
+  );
 
   const handleQuickSaveCurrent = useCallback(async () => {
     if (!selectedContentId || !selectedProjectId) {
@@ -319,6 +397,7 @@ export function WorkbenchPage({
     initialProjectId,
     initialViewMode,
     loadProjects,
+    resetAt,
     theme,
   ]);
 
@@ -435,11 +514,43 @@ export function WorkbenchPage({
     void loadContents(selectedProjectId);
   }, [loadContents, selectedProjectId]);
 
+  useEffect(() => {
+    if (!selectedContentId || contentCreationModes[selectedContentId]) {
+      return;
+    }
+
+    let mounted = true;
+
+    const loadCreationMode = async () => {
+      try {
+        const content = await getContent(selectedContentId);
+        const metadata = content?.metadata;
+        const mode = parseCreationMode(
+          metadata && typeof metadata === "object"
+            ? (metadata as Record<string, unknown>).creationMode
+            : null,
+        );
+
+        if (mounted && mode) {
+          setContentCreationModes((previous) => ({
+            ...previous,
+            [selectedContentId]: mode,
+          }));
+        }
+      } catch (error) {
+        console.error("读取文稿创作模式失败:", error);
+      }
+    };
+
+    void loadCreationMode();
+
+    return () => {
+      mounted = false;
+    };
+  }, [contentCreationModes, selectedContentId]);
+
   const handleBackHome = useCallback(() => {
-    onNavigate?.("agent", {
-      theme: "general",
-      lockTheme: false,
-    });
+    onNavigate?.("agent", buildHomeAgentParams());
   }, [onNavigate]);
 
   const handleBackToProjectManagement = useCallback(() => {
@@ -519,7 +630,7 @@ export function WorkbenchPage({
 
       <div className="flex flex-1 min-h-0">
         {shouldRenderLeftSidebar && (
-          <aside className="w-[320px] min-w-[300px] border-r bg-muted/20 flex flex-col">
+          <aside className="w-[260px] min-w-[240px] border-r bg-muted/20 flex flex-col">
             <div className="px-3 py-3 border-b space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <div>
@@ -616,9 +727,7 @@ export function WorkbenchPage({
                     variant="ghost"
                     size="icon"
                     className="h-7 w-7"
-                    onClick={() => {
-                      void handleCreateContent();
-                    }}
+                    onClick={handleOpenCreateContentDialog}
                     disabled={!selectedProjectId}
                     title="新建文稿"
                   >
@@ -695,9 +804,7 @@ export function WorkbenchPage({
                 </Button>
                 <Button
                   variant="outline"
-                  onClick={() => {
-                    void handleCreateContent();
-                  }}
+                  onClick={handleOpenCreateContentDialog}
                   disabled={!selectedProjectId}
                 >
                   <Plus className="h-4 w-4 mr-1" />
@@ -742,9 +849,7 @@ export function WorkbenchPage({
                 </Button>
                 <Button
                   variant="outline"
-                  onClick={() => {
-                    void handleCreateContent();
-                  }}
+                  onClick={handleOpenCreateContentDialog}
                   disabled={!selectedProjectId}
                 >
                   <Plus className="h-4 w-4 mr-1" />
@@ -760,7 +865,13 @@ export function WorkbenchPage({
                 projectId={selectedProjectId}
                 contentId={selectedContentId}
                 theme={theme}
+                initialCreationMode={
+                  (selectedContentId &&
+                    contentCreationModes[selectedContentId]) ||
+                  undefined
+                }
                 lockTheme={true}
+                hideHistoryToggle={true}
               />
             </div>
           )}
@@ -879,6 +990,73 @@ export function WorkbenchPage({
               }
             >
               {creatingProject ? "创建中..." : "创建项目"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={createContentDialogOpen}
+        onOpenChange={(open) => {
+          if (!creatingContent) {
+            setCreateContentDialogOpen(open);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[560px]">
+          <DialogHeader>
+            <DialogTitle>新建文稿</DialogTitle>
+            <DialogDescription>
+              请选择本次创作模式，创建后将直接进入作业界面。
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-2 py-2">
+            {CREATION_MODE_OPTIONS.map((modeOption) => (
+              <Button
+                key={modeOption.value}
+                type="button"
+                variant={
+                  selectedCreationMode === modeOption.value
+                    ? "default"
+                    : "outline"
+                }
+                className="h-auto justify-start py-3"
+                onClick={() => setSelectedCreationMode(modeOption.value)}
+                disabled={creatingContent}
+              >
+                <div className="text-left">
+                  <div className="text-sm font-medium">{modeOption.label}</div>
+                  <div
+                    className={cn(
+                      "text-xs mt-1",
+                      selectedCreationMode === modeOption.value
+                        ? "text-primary-foreground/80"
+                        : "text-muted-foreground",
+                    )}
+                  >
+                    {modeOption.description}
+                  </div>
+                </div>
+              </Button>
+            ))}
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setCreateContentDialogOpen(false)}
+              disabled={creatingContent}
+            >
+              取消
+            </Button>
+            <Button
+              onClick={() => {
+                void handleCreateContent(selectedCreationMode);
+              }}
+              disabled={!selectedProjectId || creatingContent}
+            >
+              {creatingContent ? "创建中..." : "创建并进入作业"}
             </Button>
           </DialogFooter>
         </DialogContent>

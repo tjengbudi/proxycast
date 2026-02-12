@@ -23,6 +23,7 @@ use axum::{
     Json,
 };
 use serde_json::json;
+use std::future::Future;
 
 use crate::client_detector::ClientType;
 use crate::{record_request_telemetry, record_token_usage, AppState};
@@ -121,6 +122,119 @@ async fn select_credential_for_request(
             eprintln!("[{log_prefix}] 选择凭证失败: {e}");
             Ok(None)
         }
+    }
+}
+
+async fn call_with_single_provider_resilience<F, Fut>(
+    state: &AppState,
+    request_id: &str,
+    provider_label: &str,
+    is_stream: bool,
+    mut operation: F,
+) -> Response
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Response>,
+{
+    let retrier = state.processor.retrier.clone();
+    let timeout_controller = state.processor.timeout.clone();
+    let max_retries = if is_stream {
+        0
+    } else {
+        retrier.config().max_retries
+    };
+    let total_attempts = max_retries + 1;
+    let mut attempt = 0u32;
+
+    loop {
+        attempt += 1;
+
+        let response = match timeout_controller.execute_with_timeout(operation()).await {
+            Ok(resp) => resp,
+            Err(timeout_err) => {
+                if attempt <= max_retries {
+                    let delay = retrier.backoff_delay(attempt - 1);
+                    state.logs.write().await.add(
+                        "warn",
+                        &format!(
+                            "[RETRY] request_id={} provider={} attempt={}/{} timeout={} delay_ms={}",
+                            request_id,
+                            provider_label,
+                            attempt,
+                            total_attempts,
+                            timeout_err,
+                            delay.as_millis()
+                        ),
+                    );
+                    tokio::time::sleep(delay).await;
+                    continue;
+                }
+
+                state.logs.write().await.add(
+                    "error",
+                    &format!(
+                        "[TIMEOUT] request_id={} provider={} attempts={} error={}",
+                        request_id, provider_label, attempt, timeout_err
+                    ),
+                );
+
+                return (
+                    StatusCode::GATEWAY_TIMEOUT,
+                    Json(json!({
+                        "error": {
+                            "type": "timeout_error",
+                            "code": "provider_timeout",
+                            "message": format!("Provider request timeout: {}", timeout_err)
+                        }
+                    })),
+                )
+                    .into_response();
+            }
+        };
+
+        let status_code = response.status().as_u16();
+        let should_retry = attempt <= max_retries && retrier.config().is_retryable(status_code);
+
+        if should_retry {
+            let delay = retrier.backoff_delay(attempt - 1);
+
+            if status_code == StatusCode::TOO_MANY_REQUESTS.as_u16() {
+                state.logs.write().await.add(
+                    "warn",
+                    &format!(
+                        "[QUOTA] request_id={} provider={} attempt={}/{} status=429",
+                        request_id, provider_label, attempt, total_attempts
+                    ),
+                );
+            }
+
+            state.logs.write().await.add(
+                "warn",
+                &format!(
+                    "[RETRY] request_id={} provider={} attempt={}/{} status={} delay_ms={}",
+                    request_id,
+                    provider_label,
+                    attempt,
+                    total_attempts,
+                    status_code,
+                    delay.as_millis()
+                ),
+            );
+            tokio::time::sleep(delay).await;
+            continue;
+        }
+
+        if attempt > 1 {
+            state.logs.write().await.add(
+                "info",
+                &format!(
+                    "[RETRY] request_id={} provider={} completed attempts={} final_status={}",
+                    request_id, provider_label, attempt, status_code
+                ),
+            );
+        }
+
+        return response;
     }
 }
 
@@ -393,7 +507,15 @@ pub async fn chat_completions(
         // **Validates: Requirements 2.1, 2.3, 2.5**
 
         eprintln!("[CHAT_COMPLETIONS] 调用 Provider: {}", cred.provider_type);
-        let response = call_provider_openai(&state, &cred, &request, None).await;
+        let provider_label = cred.provider_type.to_string();
+        let response = call_with_single_provider_resilience(
+            &state,
+            &ctx.request_id,
+            &provider_label,
+            request.stream,
+            || async { call_provider_openai(&state, &cred, &request, None).await },
+        )
+        .await;
         eprintln!(
             "[CHAT_COMPLETIONS] Provider 响应状态: {}",
             response.status()
@@ -411,6 +533,7 @@ pub async fn chat_completions(
 
         // 如果成功且需要 Flow 捕获，提取响应体内容和响应头
         // 注意：非流式响应需要读取 body，所以必须在这里处理
+        return response;
     }
 
     // 回退到旧的单凭证模式（仅当选择的 Provider 是 Kiro 时）
@@ -909,7 +1032,15 @@ pub async fn anthropic_messages(
         // 检查是否需要拦截请求
         // **Validates: Requirements 2.1, 2.3, 2.5**
 
-        let response = call_provider_anthropic(&state, &cred, &request, None).await;
+        let provider_label = cred.provider_type.to_string();
+        let response = call_with_single_provider_resilience(
+            &state,
+            &ctx.request_id,
+            &provider_label,
+            request.stream,
+            || async { call_provider_anthropic(&state, &cred, &request, None).await },
+        )
+        .await;
 
         // 记录请求统计
         let is_success = response.status().is_success();

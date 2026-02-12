@@ -29,6 +29,23 @@ fn truncate_string(s: &str, max_chars: usize) -> String {
     }
 }
 
+fn resolve_workspace_id_by_working_dir(
+    conn: &rusqlite::Connection,
+    working_dir: Option<&str>,
+) -> Option<String> {
+    let resolved_working_dir = working_dir?.trim();
+    if resolved_working_dir.is_empty() {
+        return None;
+    }
+
+    conn.query_row(
+        "SELECT id FROM workspaces WHERE root_path = ? LIMIT 1",
+        rusqlite::params![resolved_working_dir],
+        |row| row.get::<_, String>(0),
+    )
+    .ok()
+}
+
 /// Agent 进程状态响应
 #[derive(Debug, Serialize)]
 pub struct AgentProcessStatus {
@@ -270,6 +287,8 @@ pub struct SessionInfo {
     pub created_at: String,
     pub last_activity: String,
     pub messages_count: usize,
+    pub workspace_id: Option<String>,
+    pub working_dir: Option<String>,
 }
 
 /// 获取会话列表
@@ -283,6 +302,9 @@ pub async fn agent_list_sessions(db: State<'_, DbConnection>) -> Result<Vec<Sess
         .into_iter()
         .map(|s| {
             let messages_count = AgentDao::get_message_count(&conn, &s.id).unwrap_or(0);
+            let working_dir = s.working_dir.clone();
+            let workspace_id = resolve_workspace_id_by_working_dir(&conn, working_dir.as_deref());
+
             SessionInfo {
                 session_id: s.id,
                 provider_type: "aster".to_string(),
@@ -291,6 +313,8 @@ pub async fn agent_list_sessions(db: State<'_, DbConnection>) -> Result<Vec<Sess
                 created_at: s.created_at.clone(),
                 last_activity: s.updated_at,
                 messages_count,
+                workspace_id,
+                working_dir,
             }
         })
         .collect();
@@ -311,6 +335,8 @@ pub async fn agent_get_session(
         .ok_or_else(|| "会话不存在".to_string())?;
 
     let messages_count = AgentDao::get_message_count(&conn, &session_id).unwrap_or(0);
+    let working_dir = session.working_dir.clone();
+    let workspace_id = resolve_workspace_id_by_working_dir(&conn, working_dir.as_deref());
 
     Ok(SessionInfo {
         session_id: session.id,
@@ -320,6 +346,8 @@ pub async fn agent_get_session(
         created_at: session.created_at.clone(),
         last_activity: session.updated_at,
         messages_count,
+        workspace_id,
+        working_dir,
     })
 }
 

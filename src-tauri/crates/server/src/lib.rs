@@ -458,6 +458,9 @@ pub struct AppState {
     pub kiro_event_service: Arc<KiroEventService>,
     /// API Key Provider 服务（用于智能降级）
     pub api_key_service: Arc<proxycast_services::api_key_provider_service::ApiKeyProviderService>,
+    /// 批量任务执行器
+    pub batch_executor:
+        Arc<tokio::sync::RwLock<Option<handlers::batch_executor::BatchTaskExecutor>>>,
 }
 
 /// 启动配置文件监控
@@ -863,7 +866,14 @@ async fn run_server(
         endpoint_providers,
         kiro_event_service,
         api_key_service,
+        batch_executor: Arc::new(tokio::sync::RwLock::new(None)),
     };
+
+    // 初始化批量任务执行器
+    {
+        let executor = handlers::batch_executor::BatchTaskExecutor::new(state.clone());
+        *state.batch_executor.write().await = Some(executor);
+    }
 
     // ========== 开发模式：通过回调启动桥接服务器 ==========
     if let Some(callback) = dev_bridge_callback {

@@ -146,8 +146,10 @@ pub async fn create_batch_task(
         ),
     );
 
-    // TODO: 启动异步执行任务
-    // 这里需要集成 BatchTaskExecutor
+    // 启动异步执行任务
+    if let Some(executor) = state.batch_executor.read().await.as_ref() {
+        executor.start_batch(batch_id).await;
+    }
 
     // 返回响应
     (
@@ -256,23 +258,87 @@ pub async fn list_batch_tasks(State(state): State<AppState>) -> Response {
 
 /// DELETE /api/batch/tasks/:id - 取消批量任务
 pub async fn cancel_batch_task(State(state): State<AppState>, Path(id): Path<Uuid>) -> Response {
-    // TODO: 取消批量任务
+    let db = match &state.db {
+        Some(db) => db,
+        None => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": {
+                        "message": "数据库未初始化",
+                        "type": "database_error"
+                    }
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    // 检查任务是否存在
+    let batch_task = match BatchTaskDao::get_by_id(db, &id) {
+        Ok(Some(task)) => task,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({
+                    "error": {
+                        "message": format!("批量任务不存在: {}", id),
+                        "type": "not_found"
+                    }
+                })),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": {
+                        "message": format!("查询批量任务失败: {}", e),
+                        "type": "database_error"
+                    }
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    // 只能取消运行中的任务
+    if batch_task.status != proxycast_scheduler::BatchTaskStatus::Running
+        && batch_task.status != proxycast_scheduler::BatchTaskStatus::Pending
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": {
+                    "message": format!("任务状态为 {:?}，无法取消", batch_task.status),
+                    "type": "invalid_state"
+                }
+            })),
+        )
+            .into_response();
+    }
+
+    // 通过执行器取消
+    let cancelled = if let Some(executor) = state.batch_executor.read().await.as_ref() {
+        executor.cancel_batch(&id).await
+    } else {
+        false
+    };
+
+    if !cancelled {
+        // 如果执行器中没有找到（可能还没开始执行），直接更新 DB 状态
+        let _ =
+            BatchTaskDao::update_status(db, &id, proxycast_scheduler::BatchTaskStatus::Cancelled);
+    }
+
     state
         .logs
         .write()
         .await
         .add("info", &format!("[BATCH] 取消批量任务: id={}", id));
 
-    (
-        StatusCode::NOT_FOUND,
-        Json(serde_json::json!({
-            "error": {
-                "message": format!("批量任务不存在: {}", id),
-                "type": "not_found"
-            }
-        })),
-    )
-        .into_response()
+    (StatusCode::OK, Json(serde_json::json!({"cancelled": true}))).into_response()
 }
 
 /// POST /api/batch/templates - 创建任务模板

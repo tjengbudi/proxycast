@@ -26,6 +26,7 @@ import {
   FileType,
   ChevronDown,
   Activity,
+  Layers,
   LucideIcon,
 } from "lucide-react";
 import * as LucideIcons from "lucide-react";
@@ -39,6 +40,10 @@ import {
   ThemeWorkspacePage,
 } from "@/types/page";
 import { getConfig } from "@/hooks/useTauri";
+import {
+  buildHomeAgentParams,
+  buildWorkspaceResetParams,
+} from "@/lib/workspace/navigation";
 
 interface AppSidebarProps {
   currentPage: Page;
@@ -262,6 +267,7 @@ const MAIN_MENU_ITEMS: SidebarNavItem[] = [
     isActive: (currentPage) => currentPage === "agent",
   },
   { id: "image-gen", label: "绘画", icon: Image, page: "image-gen" },
+  { id: "batch", label: "批量任务", icon: Layers, page: "batch" },
   { id: "plugins", label: "插件中心", icon: Compass, page: "plugins" },
 ];
 
@@ -522,11 +528,12 @@ export function AppSidebar({ currentPage, onNavigate }: AppSidebarProps) {
 
     const params: PageParams | undefined =
       item.id === "home-general"
-        ? ({
-            ...(item.params as AgentPageParams | undefined),
-            newChatAt: Date.now(),
-          } as AgentPageParams)
-        : item.params;
+        ? buildHomeAgentParams(item.params as AgentPageParams | undefined)
+        : isThemeWorkspacePage(item.page)
+          ? buildWorkspaceResetParams(
+              item.params as AgentPageParams | undefined,
+            )
+          : item.params;
 
     onNavigate(item.page, params);
   };
@@ -534,15 +541,7 @@ export function AppSidebar({ currentPage, onNavigate }: AppSidebarProps) {
   return (
     <Container>
       <HeaderArea>
-        <UserButton
-          onClick={() =>
-            onNavigate("agent", {
-              theme: "general",
-              lockTheme: false,
-              newChatAt: Date.now(),
-            })
-          }
-        >
+        <UserButton onClick={() => onNavigate("agent", buildHomeAgentParams())}>
           <Avatar>
             <img src="/logo.png" alt="ProxyCast" />
           </Avatar>
@@ -551,13 +550,7 @@ export function AppSidebar({ currentPage, onNavigate }: AppSidebarProps) {
         </UserButton>
 
         <SearchButton
-          onClick={() =>
-            onNavigate("agent", {
-              theme: "general",
-              lockTheme: false,
-              newChatAt: Date.now(),
-            })
-          }
+          onClick={() => onNavigate("agent", buildHomeAgentParams())}
         >
           <Search size={14} />
           <span>搜索</span>

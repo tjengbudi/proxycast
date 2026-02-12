@@ -45,12 +45,17 @@ const ToolbarContainer = styled.div`
   background: hsl(var(--background));
   border-bottom: 1px solid hsl(var(--border));
   gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
 `;
 
 const ToolbarGroup = styled.div`
   display: flex;
   align-items: center;
   gap: 4px;
+  flex-shrink: 0;
+  flex-wrap: nowrap;
 `;
 
 const ZoomDisplay = styled.span`
@@ -69,9 +74,13 @@ const Divider = styled.div`
 `;
 
 const SizeDisplay = styled.span`
+  display: inline-flex;
+  align-items: center;
   font-size: 12px;
   color: hsl(var(--muted-foreground));
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  line-height: 1;
   cursor: pointer;
   padding: 4px 8px;
   border-radius: 4px;
@@ -339,11 +348,11 @@ export const PosterToolbar: React.FC<PosterToolbarProps> = memo(
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-8 gap-1"
+                  className="h-8 gap-1 px-2"
                   onClick={onExport}
                 >
                   <Download className="h-4 w-4" />
-                  <span className="text-xs">导出</span>
+                  <span className="text-xs whitespace-nowrap">导出</span>
                 </Button>
               </TooltipTrigger>
               <TooltipContent>导出图片</TooltipContent>

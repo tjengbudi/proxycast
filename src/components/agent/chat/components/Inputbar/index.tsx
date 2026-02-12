@@ -14,10 +14,10 @@ import { ChatModelSelector } from "../ChatModelSelector";
 const TaskFilesArea = styled.div`
   display: flex;
   justify-content: flex-end;
-  padding: 0 18px 8px 18px;
+  padding: 0 8px 8px 8px;
   width: 100%;
-  max-width: 900px;
-  margin: 0 auto;
+  max-width: none;
+  margin: 0;
 `;
 
 // 按钮和面板的包装容器
@@ -163,8 +163,6 @@ export const Inputbar: React.FC<InputbarProps> = ({
           fileInputRef.current?.click();
           break;
         case "quick_action":
-          toast.info("快捷指令功能开发中...");
-          break;
         case "translate":
           toast.info("翻译功能开发中...");
           break;

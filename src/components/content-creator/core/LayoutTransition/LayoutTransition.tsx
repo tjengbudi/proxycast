@@ -21,6 +21,7 @@ const ChatPanel = styled.div<{ $width: string; $duration: number }>`
   overflow: hidden;
   transition: width ${({ $duration }) => $duration}ms ease-out;
   width: ${({ $width }) => $width};
+  min-width: 460px;
   will-change: width;
   display: flex;
   flex-direction: column;

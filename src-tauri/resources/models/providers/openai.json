@@ -59,6 +59,60 @@
       "is_latest": true
     },
     {
+      "id": "gpt-5.3-codex",
+      "name": "GPT-5.3 Codex",
+      "family": "gpt-5-codex",
+      "tier": "pro",
+      "capabilities": {
+        "vision": true,
+        "tools": true,
+        "streaming": true,
+        "json_mode": true,
+        "function_calling": true,
+        "reasoning": true
+      },
+      "pricing": {
+        "input": 1.75,
+        "output": 14,
+        "cache_read": 0.175,
+        "currency": "USD"
+      },
+      "limits": {
+        "context": 272000,
+        "max_output": 128000
+      },
+      "status": "active",
+      "release_date": "2026-02-05",
+      "is_latest": true
+    },
+    {
+      "id": "gpt-5.2-codex",
+      "name": "GPT-5.2 Codex",
+      "family": "gpt-5-codex",
+      "tier": "pro",
+      "capabilities": {
+        "vision": true,
+        "tools": true,
+        "streaming": true,
+        "json_mode": true,
+        "function_calling": true,
+        "reasoning": true
+      },
+      "pricing": {
+        "input": 1.75,
+        "output": 14,
+        "cache_read": 0.175,
+        "currency": "USD"
+      },
+      "limits": {
+        "context": 272000,
+        "max_output": 128000
+      },
+      "status": "active",
+      "release_date": "2025-12-11",
+      "is_latest": false
+    },
+    {
       "id": "gpt-5.1-codex",
       "name": "GPT-5.1 Codex",
       "family": "gpt-5-codex",

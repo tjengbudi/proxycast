@@ -134,8 +134,34 @@
       "status": "active",
       "release_date": "2025-12-01",
       "is_latest": true
+    },
+    {
+      "id": "hf:moonshotai/Kimi-K2.5",
+      "name": "Kimi K2.5",
+      "family": "kimi",
+      "tier": "pro",
+      "capabilities": {
+        "vision": true,
+        "tools": true,
+        "streaming": true,
+        "json_mode": true,
+        "function_calling": true,
+        "reasoning": true
+      },
+      "pricing": {
+        "input": 0.55,
+        "output": 2.19,
+        "currency": "USD"
+      },
+      "limits": {
+        "context": 262144,
+        "max_output": 65536
+      },
+      "status": "active",
+      "release_date": "2026-01",
+      "is_latest": true
     }
   ],
-  "updated_at": "2026-01-12T00:00:00.000Z",
+  "updated_at": "2026-02-11T00:00:00.000Z",
   "source": "synthetic.ai"
 }

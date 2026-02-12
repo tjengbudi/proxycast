@@ -39,6 +39,7 @@ pub mod route_cmd;
 pub mod screenshot_cmd;
 pub mod session_files_cmd;
 pub mod skill_cmd;
+pub mod skill_error;
 pub mod skill_exec_cmd;
 pub mod subagent_cmd;
 pub mod switch_cmd;

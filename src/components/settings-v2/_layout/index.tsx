@@ -10,6 +10,7 @@ import styled from "styled-components";
 import { Home } from "lucide-react";
 import { SettingsSidebar } from "./SettingsSidebar";
 import { SettingsTabs } from "@/types/settings";
+import { buildHomeAgentParams } from "@/lib/workspace/navigation";
 import { Page, PageParams } from "@/types/page";
 
 // 外观设置（迁移自原 GeneralSettings）
@@ -339,7 +340,7 @@ export function SettingsLayoutV2({
 
   const handleBackToHome = () => {
     if (onNavigate) {
-      onNavigate("agent");
+      onNavigate("agent", buildHomeAgentParams());
     }
   };
 

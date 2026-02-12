@@ -768,8 +768,15 @@ pub async fn aster_agent_chat_stream(
         {
             let session_dir = session.working_dir.unwrap_or_default();
             if !session_dir.is_empty() && session_dir != workspace_root {
+                tracing::warn!(
+                    "[AsterAgent] workspace mismatch: session_id={}, workspace_id={}, session_dir={}, workspace_root={}",
+                    session_id,
+                    workspace_id,
+                    session_dir,
+                    workspace_root
+                );
                 return Err(format!(
-                    "会话工作目录与 workspace 不匹配: session={}, workspace={}",
+                    "workspace_mismatch|会话工作目录与 workspace 不匹配: session={}, workspace={}",
                     session_dir, workspace_root
                 ));
             }

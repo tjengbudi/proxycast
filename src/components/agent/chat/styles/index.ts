@@ -69,11 +69,11 @@ export const MessageWrapper = styled.div<{ $isUser: boolean }>`
   display: flex;
   flex-direction: row;
   align-items: flex-start;
-  padding: 16px 24px;
-  gap: 16px;
+  padding: 12px 6px;
+  gap: 12px;
   width: 100%;
-  max-width: 900px;
-  margin: 0 auto;
+  max-width: none;
+  margin: 0;
 
   &:hover .message-actions {
     opacity: 1;

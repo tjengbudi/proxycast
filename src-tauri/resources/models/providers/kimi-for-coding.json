@@ -32,8 +32,36 @@
       "status": "active",
       "release_date": "2025-11",
       "is_latest": false
+    },
+    {
+      "id": "k2p5",
+      "name": "Kimi K2.5",
+      "family": "kimi-thinking",
+      "tier": "pro",
+      "capabilities": {
+        "vision": true,
+        "tools": true,
+        "streaming": true,
+        "json_mode": true,
+        "function_calling": true,
+        "reasoning": true
+      },
+      "pricing": {
+        "input": 0,
+        "output": 0,
+        "cache_read": 0,
+        "cache_write": 0,
+        "currency": "USD"
+      },
+      "limits": {
+        "context": 262144,
+        "max_output": 32768
+      },
+      "status": "active",
+      "release_date": "2026-01",
+      "is_latest": true
     }
   ],
-  "updated_at": "2026-01-06T10:24:55.364Z",
+  "updated_at": "2026-02-11T00:00:00.000Z",
   "source": "models.dev"
 }

@@ -89,6 +89,11 @@ pub fn init_states(config: &Config) -> Result<AppStates, String> {
     // 数据库
     let db = database::init_database().map_err(|e| format!("数据库初始化失败: {e}"))?;
 
+    // 初始化批量任务表
+    if let Err(e) = proxycast_scheduler::BatchTaskDao::init_tables(&db) {
+        tracing::warn!("[Bootstrap] 批量任务表初始化失败: {}", e);
+    }
+
     // 服务状态
     let skill_service = SkillService::new().map_err(|e| format!("SkillService 初始化失败: {e}"))?;
     let skill_service_state = SkillServiceState(Arc::new(skill_service));

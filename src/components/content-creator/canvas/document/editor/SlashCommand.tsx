@@ -1,6 +1,7 @@
 import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import React, { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Heading1,
   Heading2,
@@ -350,13 +351,15 @@ export const CommandList: React.FC<CommandListProps> = ({
 
   const top = clientRect ? clientRect.bottom + 4 : 0;
   const left = clientRect ? clientRect.left : 0;
+  const maxLeft = Math.max(window.innerWidth - 280, 8);
+  const popupLeft = Math.min(Math.max(left, 8), maxLeft);
 
-  return (
+  const popup = (
     <div
       className="fixed z-[9999] w-64 max-h-72 overflow-y-auto rounded-lg border border-border shadow-lg"
       style={{
         top,
-        left,
+        left: popupLeft,
         background: "hsl(var(--background))",
       }}
     >
@@ -390,4 +393,6 @@ export const CommandList: React.FC<CommandListProps> = ({
       ))}
     </div>
   );
+
+  return createPortal(popup, document.body);
 };
