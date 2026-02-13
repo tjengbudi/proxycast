@@ -32,6 +32,15 @@ interface CanvasFactoryProps {
   onClose: () => void;
   /** 是否正在流式输出（仅文档画布使用） */
   isStreaming?: boolean;
+  /** 小说画布控制配置（可选） */
+  novelControls?: {
+    /** 是否由外部导航栏接管控制按钮 */
+    useExternalToolbar: boolean;
+    /** 章节栏是否折叠 */
+    chapterListCollapsed: boolean;
+    /** 章节栏折叠状态变更 */
+    onChapterListCollapsedChange: (collapsed: boolean) => void;
+  } | null;
 }
 
 /**
@@ -41,7 +50,7 @@ interface CanvasFactoryProps {
  * 优先使用 state.type 来决定渲染哪个画布，以支持 general 等主题
  */
 export const CanvasFactory: React.FC<CanvasFactoryProps> = memo(
-  ({ theme, state, onStateChange, onClose, isStreaming }) => {
+  ({ theme, state, onStateChange, onClose, isStreaming, novelControls }) => {
     // 优先根据 state.type 渲染，这样 general 主题也能显示文档画布
     // 只有当 state.type 与 theme 对应的 canvasType 不匹配时才检查 theme
     const canvasType = useMemo(() => {
@@ -102,6 +111,11 @@ export const CanvasFactory: React.FC<CanvasFactoryProps> = memo(
           state={state}
           onStateChange={onStateChange as (s: NovelCanvasState) => void}
           onClose={onClose}
+          useExternalToolbar={novelControls?.useExternalToolbar}
+          chapterListCollapsed={novelControls?.chapterListCollapsed}
+          onChapterListCollapsedChange={
+            novelControls?.onChapterListCollapsedChange
+          }
         />
       );
     }

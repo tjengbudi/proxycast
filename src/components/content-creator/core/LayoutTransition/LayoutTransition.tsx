@@ -16,15 +16,31 @@ const Container = styled.div`
   overflow: hidden;
 `;
 
-const ChatPanel = styled.div<{ $width: string; $duration: number }>`
+const ChatPanel = styled.div<{
+  $width: string;
+  $duration: number;
+  $minWidth: string;
+}>`
   height: 100%;
   overflow: hidden;
   transition: width ${({ $duration }) => $duration}ms ease-out;
   width: ${({ $width }) => $width};
-  min-width: 460px;
+  min-width: ${({ $minWidth }) => $minWidth};
   will-change: width;
   display: flex;
   flex-direction: column;
+  padding: 16px 16px 16px 0;
+`;
+
+const ChatPanelInner = styled.div`
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: hsl(var(--background));
+  border-radius: 12px;
+  border: 1px solid hsl(var(--border));
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 `;
 
 const CanvasPanel = styled.div<{
@@ -90,8 +106,9 @@ export const LayoutTransition: React.FC<LayoutTransitionProps> = memo(
           $duration={parseInt(
             chatStyles.transition?.match(/\d+/)?.[0] || "300",
           )}
+          $minWidth={mode === "canvas" ? "0px" : "460px"}
         >
-          {chatContent}
+          <ChatPanelInner>{chatContent}</ChatPanelInner>
         </ChatPanel>
       </Container>
     );

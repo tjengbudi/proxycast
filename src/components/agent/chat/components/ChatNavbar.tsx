@@ -1,5 +1,13 @@
 import React from "react";
-import { Box, Home, Settings2 } from "lucide-react";
+import {
+  Box,
+  Home,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Plus,
+  Settings2,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ProjectSelector } from "@/components/projects/ProjectSelector";
 import { Navbar } from "../styles";
@@ -9,11 +17,18 @@ interface ChatNavbarProps {
   onToggleHistory: () => void;
   showHistoryToggle?: boolean;
   onToggleFullscreen: () => void;
+  onBackToProjectManagement?: () => void;
   onToggleSettings?: () => void;
   onBackHome?: () => void;
   projectId?: string | null;
   onProjectChange?: (projectId: string) => void;
   workspaceType?: string;
+  novelCanvasControls?: {
+    chapterListCollapsed: boolean;
+    onToggleChapterList: () => void;
+    onAddChapter: () => void;
+    onCloseCanvas: () => void;
+  } | null;
 }
 
 export const ChatNavbar: React.FC<ChatNavbarProps> = ({
@@ -21,11 +36,13 @@ export const ChatNavbar: React.FC<ChatNavbarProps> = ({
   onToggleHistory,
   showHistoryToggle = true,
   onToggleFullscreen: _onToggleFullscreen,
+  onBackToProjectManagement,
   onToggleSettings,
   onBackHome,
   projectId = null,
   onProjectChange,
   workspaceType,
+  novelCanvasControls = null,
 }) => {
   return (
     <Navbar>
@@ -50,6 +67,56 @@ export const ChatNavbar: React.FC<ChatNavbarProps> = ({
           >
             <Box size={18} />
           </Button>
+        )}
+        {onBackToProjectManagement && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8"
+            onClick={onBackToProjectManagement}
+          >
+            项目管理
+          </Button>
+        )}
+        {novelCanvasControls && (
+          <>
+            <div className="h-5 w-px bg-border" />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-muted-foreground"
+              onClick={novelCanvasControls.onToggleChapterList}
+              title={
+                novelCanvasControls.chapterListCollapsed
+                  ? "展开章节栏"
+                  : "收起章节栏"
+              }
+            >
+              {novelCanvasControls.chapterListCollapsed ? (
+                <PanelLeftOpen size={18} />
+              ) : (
+                <PanelLeftClose size={18} />
+              )}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-muted-foreground"
+              onClick={novelCanvasControls.onAddChapter}
+              title="新建章节"
+            >
+              <Plus size={18} />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-muted-foreground"
+              onClick={novelCanvasControls.onCloseCanvas}
+              title="关闭画布"
+            >
+              <X size={18} />
+            </Button>
+          </>
         )}
       </div>
 

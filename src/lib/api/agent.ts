@@ -823,6 +823,23 @@ export async function confirmAsterAction(
   });
 }
 
+/**
+ * 提交 Aster Agent elicitation 响应
+ */
+export async function submitAsterElicitationResponse(
+  sessionId: string,
+  requestId: string,
+  userData: unknown,
+): Promise<void> {
+  return await safeInvoke("aster_agent_submit_elicitation_response", {
+    sessionId,
+    request: {
+      request_id: requestId,
+      user_data: userData,
+    },
+  });
+}
+
 // ============================================================
 // Terminal Tool API (终端命令执行)
 // ============================================================
@@ -961,9 +978,11 @@ export interface PermissionResponse {
 export async function sendPermissionResponse(
   response: PermissionResponse,
 ): Promise<void> {
-  return await safeInvoke("agent_permission_response", {
-    requestId: response.requestId,
-    confirmed: response.confirmed,
-    response: response.response,
+  return await safeInvoke("aster_agent_confirm", {
+    request: {
+      request_id: response.requestId,
+      confirmed: response.confirmed,
+      response: response.response,
+    },
   });
 }

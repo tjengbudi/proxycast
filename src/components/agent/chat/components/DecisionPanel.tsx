@@ -66,18 +66,53 @@ function formatArguments(args?: Record<string, unknown>): string {
   }
 }
 
+/** 从 requested_schema 中提取 answer.enum 选项 */
+function extractElicitationOptions(
+  requestedSchema?: Record<string, unknown>,
+): string[] {
+  if (!requestedSchema) return [];
+  const properties = requestedSchema.properties as
+    | Record<string, unknown>
+    | undefined;
+  const answer = properties?.answer as Record<string, unknown> | undefined;
+  const enumValues = answer?.enum;
+  if (!Array.isArray(enumValues)) return [];
+  return enumValues.filter((item): item is string => typeof item === "string");
+}
+
+/** 从 requested_schema 中提取 answer.description */
+function extractElicitationDescription(
+  requestedSchema?: Record<string, unknown>,
+): string | undefined {
+  if (!requestedSchema) return undefined;
+  const properties = requestedSchema.properties as
+    | Record<string, unknown>
+    | undefined;
+  const answer = properties?.answer as Record<string, unknown> | undefined;
+  const description = answer?.description;
+  return typeof description === "string" ? description : undefined;
+}
+
 export function DecisionPanel({ request, onSubmit }: DecisionPanelProps) {
   // 解析问题数据（用于 ask_user 类型）
   const questions = request.questions || [];
+  const elicitationOptions = extractElicitationOptions(request.requestedSchema);
+  const elicitationDescription = extractElicitationDescription(
+    request.requestedSchema,
+  );
   const [selectedOptions, setSelectedOptions] = useState<
     Record<number, string[]>
   >({});
   const [otherInputs, setOtherInputs] = useState<Record<number, string>>({});
+  const [elicitationAnswer, setElicitationAnswer] = useState("");
+  const [elicitationOther, setElicitationOther] = useState("");
 
   // 重置状态当请求变化时
   useEffect(() => {
     setSelectedOptions({});
     setOtherInputs({});
+    setElicitationAnswer("");
+    setElicitationOther("");
   }, [request.requestId]);
 
   // 切换选项
@@ -119,21 +154,51 @@ export function DecisionPanel({ request, onSubmit }: DecisionPanelProps) {
 
   // 检查是否���以提交
   const canSubmit =
-    questions.length === 0 ||
-    questions.every((_, qIndex) => {
-      const selected = selectedOptions[qIndex] ?? [];
-      const otherText = otherInputs[qIndex]?.trim() ?? "";
-      return selected.length > 0 || otherText.length > 0;
-    });
+    request.actionType === "elicitation"
+      ? elicitationAnswer.trim().length > 0 ||
+        elicitationOther.trim().length > 0
+      : questions.length === 0 ||
+        questions.every((_, qIndex) => {
+          const selected = selectedOptions[qIndex] ?? [];
+          const otherText = otherInputs[qIndex]?.trim() ?? "";
+          return selected.length > 0 || otherText.length > 0;
+        });
 
   // 处理允许
   const handleAllow = () => {
-    const response =
-      questions.length > 0 ? JSON.stringify(buildAnswers()) : undefined;
+    if (request.actionType === "elicitation") {
+      const answer = elicitationAnswer.trim();
+      const other = elicitationOther.trim();
+      const userData: Record<string, string> = {};
+
+      if (answer) {
+        userData.answer = answer;
+      }
+      if (other) {
+        userData.other = other;
+        if (!userData.answer) {
+          userData.answer = other;
+        }
+      }
+
+      onSubmit({
+        requestId: request.requestId,
+        confirmed: true,
+        response: JSON.stringify(userData),
+        actionType: request.actionType,
+        userData,
+      });
+      return;
+    }
+
+    const answers = buildAnswers();
+    const response = questions.length > 0 ? JSON.stringify(answers) : undefined;
     onSubmit({
       requestId: request.requestId,
       confirmed: true,
       response,
+      actionType: request.actionType,
+      userData: questions.length > 0 ? answers : undefined,
     });
   };
 
@@ -143,8 +208,96 @@ export function DecisionPanel({ request, onSubmit }: DecisionPanelProps) {
       requestId: request.requestId,
       confirmed: false,
       response: "用户拒绝了请求",
+      actionType: request.actionType,
+      userData:
+        request.actionType === "tool_confirmation" ? undefined : ("" as const),
     });
   };
+
+  // 渲染 elicitation 面板
+  if (request.actionType === "elicitation") {
+    return (
+      <Card className="border-indigo-200 bg-indigo-50/50 dark:border-indigo-800 dark:bg-indigo-950/20">
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-sm font-medium text-indigo-700 dark:text-indigo-300">
+            <HelpCircle className="h-4 w-4" />
+            需要你提供信息
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-foreground">
+            {request.prompt || "请提供继续执行所需的信息"}
+          </p>
+
+          {elicitationDescription && (
+            <p className="text-xs text-muted-foreground">
+              {elicitationDescription}
+            </p>
+          )}
+
+          {elicitationOptions.length > 0 && (
+            <div className="grid gap-2">
+              {elicitationOptions.map((option) => {
+                const isSelected = elicitationAnswer === option;
+                return (
+                  <button
+                    key={option}
+                    className={cn(
+                      "rounded-lg border px-4 py-3 text-left text-sm transition-colors",
+                      isSelected
+                        ? "border-indigo-500 bg-indigo-100 dark:border-indigo-400 dark:bg-indigo-900/30"
+                        : "border-border bg-background hover:border-indigo-300 hover:bg-muted",
+                    )}
+                    onClick={() => setElicitationAnswer(option)}
+                  >
+                    {option}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">
+              回答
+            </label>
+            <Input
+              placeholder="请输入回答..."
+              value={elicitationAnswer}
+              onChange={(e) => setElicitationAnswer(e.target.value)}
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">
+              补充说明（可选）
+            </label>
+            <Input
+              placeholder="可选补充内容..."
+              value={elicitationOther}
+              onChange={(e) => setElicitationOther(e.target.value)}
+            />
+          </div>
+
+          <div className="flex gap-2 pt-2">
+            <Button
+              size="sm"
+              onClick={handleAllow}
+              disabled={!canSubmit}
+              className="bg-indigo-600 hover:bg-indigo-700"
+            >
+              <CheckCircle className="mr-1 h-4 w-4" />
+              提交
+            </Button>
+            <Button size="sm" variant="outline" onClick={handleDeny}>
+              <XCircle className="mr-1 h-4 w-4" />
+              取消
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   // 渲染用户问题面板
   if (
@@ -197,6 +350,8 @@ export function DecisionPanel({ request, onSubmit }: DecisionPanelProps) {
                               requestId: request.requestId,
                               confirmed: true,
                               response: option.label,
+                              actionType: request.actionType,
+                              userData: { answer: option.label },
                             });
                             return;
                           }

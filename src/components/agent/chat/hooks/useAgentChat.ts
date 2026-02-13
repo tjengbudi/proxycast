@@ -14,7 +14,8 @@ import {
   renameAgentSession,
   generateAgentTitle,
   parseStreamEvent,
-  sendPermissionResponse,
+  confirmAsterAction,
+  submitAsterElicitationResponse,
   stopAsterSession,
   type AgentProcessStatus,
   type SessionInfo,
@@ -1927,12 +1928,63 @@ export function useAgentChat(options: UseAgentChatOptions) {
   // 处理权限确认响应
   const handlePermissionResponse = async (response: ConfirmResponse) => {
     try {
-      // 发送权限确认响应到后端
-      await sendPermissionResponse({
-        requestId: response.requestId,
-        confirmed: response.confirmed,
-        response: response.response,
-      });
+      const findActionTypeByRequestId = (
+        requestId: string,
+      ): ConfirmResponse["actionType"] => {
+        for (const message of messages) {
+          const action = message.actionRequests?.find(
+            (item) => item.requestId === requestId,
+          );
+          if (action) {
+            return action.actionType;
+          }
+        }
+        return undefined;
+      };
+
+      const actionType =
+        response.actionType || findActionTypeByRequestId(response.requestId);
+
+      if (actionType === "elicitation" || actionType === "ask_user") {
+        const activeSessionId =
+          currentStreamingSessionIdRef.current || sessionId;
+        if (!activeSessionId) {
+          throw new Error("缺少会话 ID，无法提交 elicitation 响应");
+        }
+
+        let userData: unknown;
+        if (!response.confirmed) {
+          // 传空字符串给 ask_bridge，表示用户取消（extract_response 会返回 None）
+          userData = "";
+        } else if (response.userData !== undefined) {
+          userData = response.userData;
+        } else if (response.response !== undefined) {
+          const rawResponse = response.response.trim();
+          if (!rawResponse) {
+            userData = "";
+          } else {
+            try {
+              userData = JSON.parse(rawResponse);
+            } catch {
+              userData = rawResponse;
+            }
+          }
+        } else {
+          userData = "";
+        }
+
+        await submitAsterElicitationResponse(
+          activeSessionId,
+          response.requestId,
+          userData,
+        );
+      } else {
+        await confirmAsterAction(
+          response.requestId,
+          response.confirmed,
+          response.response,
+        );
+      }
 
       // 移除已处理的权限请求
       setMessages((prev) =>
@@ -1949,7 +2001,7 @@ export function useAgentChat(options: UseAgentChatOptions) {
         })),
       );
 
-      toast.success(response.confirmed ? "已确认操作" : "已拒绝操作");
+      toast.success(response.confirmed ? "已提交操作" : "已拒绝操作");
     } catch (error) {
       console.error("[AgentChat] 权限确认响应失败:", error);
       toast.error("权限确认响应失败");

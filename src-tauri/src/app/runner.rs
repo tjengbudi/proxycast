@@ -962,6 +962,7 @@ pub fn run() {
             commands::aster_agent_cmd::aster_session_list,
             commands::aster_agent_cmd::aster_session_get,
             commands::aster_agent_cmd::aster_agent_confirm,
+            commands::aster_agent_cmd::aster_agent_submit_elicitation_response,
             // Models config commands
             commands::models_cmd::get_models_config,
             commands::models_cmd::save_models_config,

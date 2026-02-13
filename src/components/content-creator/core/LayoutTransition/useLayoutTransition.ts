@@ -49,9 +49,7 @@ export function useLayoutTransition(
   );
   const [transitionState, setTransitionState] =
     useState<TransitionState>("idle");
-  const [isCanvasVisible, setIsCanvasVisible] = useState(
-    mode === "chat-canvas",
-  );
+  const [isCanvasVisible, setIsCanvasVisible] = useState(mode !== "chat");
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevModeRef = useRef<LayoutMode>(mode);
 
@@ -69,7 +67,7 @@ export function useLayoutTransition(
 
     clearTimeouts();
 
-    if (mode === "chat-canvas") {
+    if (mode !== "chat") {
       // 进入画布模式
       setIsCanvasVisible(true);
       setTransitionState("entering");
@@ -122,7 +120,8 @@ export function useLayoutTransition(
       // chat 区域 - 画布打开时提升右侧聊天区宽度
       return {
         transition: `width ${duration}ms ease-out`,
-        width: mode === "chat-canvas" ? "46%" : "100%",
+        width:
+          mode === "chat-canvas" ? "35%" : mode === "canvas" ? "0%" : "100%",
       };
     },
     [transitionState, mergedConfig, mode],

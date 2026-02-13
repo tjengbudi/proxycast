@@ -74,10 +74,15 @@ export interface SessionInfo {
 /** 权限确认请求 */
 export interface ActionRequired {
   requestId: string;
-  actionType: "tool_confirmation" | "ask_user" | "permission_request";
+  actionType:
+    | "tool_confirmation"
+    | "ask_user"
+    | "elicitation"
+    | "permission_request";
   toolName?: string;
   arguments?: Record<string, unknown>;
-  question?: string;
+  prompt?: string;
+  requestedSchema?: Record<string, unknown>;
   options?: Array<{
     label: string;
     description?: string;
@@ -90,6 +95,8 @@ export interface ConfirmResponse {
   requestId: string;
   confirmed: boolean;
   response?: string;
+  actionType?: ActionRequired["actionType"];
+  userData?: unknown;
 }
 
 // ============ Tauri 事件类型 ============
@@ -302,13 +309,53 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   // 确认权限请求
   confirmAction: async (response: ConfirmResponse) => {
     try {
-      await invoke("aster_agent_confirm", {
-        request: {
-          request_id: response.requestId,
-          confirmed: response.confirmed,
-          response: response.response,
-        },
-      });
+      const state = get();
+      const actionType =
+        response.actionType ||
+        state.pendingActions.find((a) => a.requestId === response.requestId)
+          ?.actionType;
+
+      if (actionType === "elicitation" || actionType === "ask_user") {
+        if (!state.currentSessionId) {
+          throw new Error("缺少会话 ID，无法提交 elicitation 响应");
+        }
+
+        let userData: unknown;
+        if (!response.confirmed) {
+          userData = "";
+        } else if (response.userData !== undefined) {
+          userData = response.userData;
+        } else if (response.response !== undefined) {
+          const rawResponse = response.response.trim();
+          if (!rawResponse) {
+            userData = "";
+          } else {
+            try {
+              userData = JSON.parse(rawResponse);
+            } catch {
+              userData = rawResponse;
+            }
+          }
+        } else {
+          userData = "";
+        }
+
+        await invoke("aster_agent_submit_elicitation_response", {
+          sessionId: state.currentSessionId,
+          request: {
+            request_id: response.requestId,
+            user_data: userData,
+          },
+        });
+      } else {
+        await invoke("aster_agent_confirm", {
+          request: {
+            request_id: response.requestId,
+            confirmed: response.confirmed,
+            response: response.response,
+          },
+        });
+      }
 
       // 移除已处理的请求
       set((s) => ({
@@ -580,7 +627,22 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             {
               requestId: event.request_id,
               actionType: event.action_type as ActionRequired["actionType"],
-              ...event.data,
+              toolName: event.data.tool_name as string | undefined,
+              arguments: event.data.arguments as
+                | Record<string, unknown>
+                | undefined,
+              prompt:
+                (event.data.prompt as string | undefined) ||
+                (event.data.message as string | undefined),
+              requestedSchema: event.data.requested_schema as
+                | Record<string, unknown>
+                | undefined,
+              options: event.data.options as
+                | Array<{
+                    label: string;
+                    description?: string;
+                  }>
+                | undefined,
               timestamp: new Date(),
             },
           ],

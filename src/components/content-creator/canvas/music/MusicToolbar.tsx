@@ -54,6 +54,13 @@ const RightSection = styled.div`
   flex-shrink: 0;
 `;
 
+const ThemeLabel = styled.span`
+  font-size: 14px;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  margin-right: 12px;
+`;
+
 const SongTitle = styled.h2`
   font-size: 14px;
   font-weight: 600;
@@ -199,6 +206,7 @@ export const MusicToolbar: React.FC<MusicToolbarProps> = memo(
     return (
       <ToolbarContainer>
         <LeftSection>
+          <ThemeLabel>音乐</ThemeLabel>
           <SongTitle>{spec.title}</SongTitle>
           <SongMeta>
             {spec.key} | {spec.tempo} BPM

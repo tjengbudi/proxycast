@@ -17,6 +17,7 @@ import {
   getAsterSession,
   stopAsterSession,
   confirmAsterAction,
+  submitAsterElicitationResponse,
   parseStreamEvent,
   type StreamEvent,
   type AsterSessionInfo,
@@ -34,10 +35,11 @@ export interface Topic {
 /** 权限确认请求 */
 export interface ActionRequired {
   requestId: string;
-  actionType: string;
+  actionType: "tool_confirmation" | "ask_user" | "elicitation";
   toolName?: string;
   arguments?: Record<string, unknown>;
-  question?: string;
+  prompt?: string;
+  requestedSchema?: Record<string, unknown>;
   timestamp: Date;
 }
 
@@ -46,6 +48,8 @@ export interface ConfirmResponse {
   requestId: string;
   confirmed: boolean;
   response?: string;
+  actionType?: ActionRequired["actionType"];
+  userData?: unknown;
 }
 
 /** Hook 配置选项 */
@@ -638,15 +642,22 @@ export function useAsterAgentChat(options: UseAsterAgentChatOptions) {
                 unknown
               >;
               if (rawEvent.type === "action_required") {
+                const actionPayload =
+                  (rawEvent.data as Record<string, unknown> | undefined) || {};
                 const actionData: ActionRequired = {
                   requestId: rawEvent.request_id as string,
-                  actionType: rawEvent.action_type as string,
-                  toolName: (rawEvent.data as Record<string, unknown>)
-                    ?.tool_name as string,
-                  arguments: (rawEvent.data as Record<string, unknown>)
-                    ?.arguments as Record<string, unknown>,
-                  question: (rawEvent.data as Record<string, unknown>)
-                    ?.question as string,
+                  actionType:
+                    rawEvent.action_type as ActionRequired["actionType"],
+                  toolName: actionPayload.tool_name as string | undefined,
+                  arguments: actionPayload.arguments as
+                    | Record<string, unknown>
+                    | undefined,
+                  prompt:
+                    (actionPayload.prompt as string | undefined) ||
+                    (actionPayload.message as string | undefined),
+                  requestedSchema: actionPayload.requested_schema as
+                    | Record<string, unknown>
+                    | undefined,
                   timestamp: new Date(),
                 };
                 setPendingActions((prev) => [...prev, actionData]);
@@ -725,22 +736,63 @@ export function useAsterAgentChat(options: UseAsterAgentChatOptions) {
   }, [sessionId]);
 
   // 确认权限请求
-  const confirmAction = useCallback(async (response: ConfirmResponse) => {
-    try {
-      await confirmAsterAction(
-        response.requestId,
-        response.confirmed,
-        response.response,
-      );
-      // 移除已处理的请求
-      setPendingActions((prev) =>
-        prev.filter((a) => a.requestId !== response.requestId),
-      );
-    } catch (error) {
-      console.error("[AsterChat] 确认失败:", error);
-      toast.error("确认操作失败");
-    }
-  }, []);
+  const confirmAction = useCallback(
+    async (response: ConfirmResponse) => {
+      try {
+        const actionType =
+          response.actionType ||
+          pendingActions.find((item) => item.requestId === response.requestId)
+            ?.actionType;
+
+        if (actionType === "elicitation" || actionType === "ask_user") {
+          if (!sessionId) {
+            throw new Error("缺少会话 ID，无法提交 elicitation 响应");
+          }
+
+          let userData: unknown;
+          if (!response.confirmed) {
+            userData = "";
+          } else if (response.userData !== undefined) {
+            userData = response.userData;
+          } else if (response.response !== undefined) {
+            const rawResponse = response.response.trim();
+            if (!rawResponse) {
+              userData = "";
+            } else {
+              try {
+                userData = JSON.parse(rawResponse);
+              } catch {
+                userData = rawResponse;
+              }
+            }
+          } else {
+            userData = "";
+          }
+
+          await submitAsterElicitationResponse(
+            sessionId,
+            response.requestId,
+            userData,
+          );
+        } else {
+          await confirmAsterAction(
+            response.requestId,
+            response.confirmed,
+            response.response,
+          );
+        }
+
+        // 移除已处理的请求
+        setPendingActions((prev) =>
+          prev.filter((a) => a.requestId !== response.requestId),
+        );
+      } catch (error) {
+        console.error("[AsterChat] 确认失败:", error);
+        toast.error("确认操作失败");
+      }
+    },
+    [pendingActions, sessionId],
+  );
 
   // 清空消息
   const clearMessages = useCallback(() => {

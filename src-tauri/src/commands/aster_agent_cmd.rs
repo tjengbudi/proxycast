@@ -13,7 +13,7 @@ use crate::database::DbConnection;
 use crate::mcp::{McpManagerState, McpServerConfig};
 use crate::workspace::WorkspaceManager;
 use aster::agents::extension::{Envs, ExtensionConfig};
-use aster::conversation::message::Message;
+use aster::conversation::message::{Message, MessageContent};
 use aster::permission::{
     ParameterRestriction, PermissionScope, RestrictionType, ToolPermission, ToolPermissionManager,
 };
@@ -508,6 +508,12 @@ async fn apply_workspace_sandbox_permissions(
     }
 
     let escaped_root = regex::escape(workspace_root);
+    let workspace_path_pattern = format!(r"^({escaped_root}|\.|\./|\.\./).*$");
+    let workspace_abs_path_pattern = format!(r"^({escaped_root}).*$");
+    let analyze_image_path_pattern = format!(
+        r"^(base64:[A-Za-z0-9+/=]+|file://({escaped_root}).*|({escaped_root}|\.|\./|\.\./).*)$"
+    );
+    let safe_https_url_pattern = String::from(r"^https://[^\s]+$");
     let mut permissions = vec![
         ToolPermission {
             tool: "read".to_string(),
@@ -518,7 +524,7 @@ async fn apply_workspace_sandbox_permissions(
                 parameter: "path".to_string(),
                 restriction_type: RestrictionType::Pattern,
                 values: None,
-                pattern: Some(format!(r"^({escaped_root}|\.|\./|\.\./).*$")),
+                pattern: Some(workspace_path_pattern.clone()),
                 validator: None,
                 min: None,
                 max: None,
@@ -539,7 +545,7 @@ async fn apply_workspace_sandbox_permissions(
                 parameter: "path".to_string(),
                 restriction_type: RestrictionType::Pattern,
                 values: None,
-                pattern: Some(format!(r"^({escaped_root}|\.|\./|\.\./).*$")),
+                pattern: Some(workspace_path_pattern.clone()),
                 validator: None,
                 min: None,
                 max: None,
@@ -560,7 +566,7 @@ async fn apply_workspace_sandbox_permissions(
                 parameter: "path".to_string(),
                 restriction_type: RestrictionType::Pattern,
                 values: None,
-                pattern: Some(format!(r"^({escaped_root}|\.|\./|\.\./).*$")),
+                pattern: Some(workspace_path_pattern.clone()),
                 validator: None,
                 min: None,
                 max: None,
@@ -581,7 +587,7 @@ async fn apply_workspace_sandbox_permissions(
                 parameter: "path".to_string(),
                 restriction_type: RestrictionType::Pattern,
                 values: None,
-                pattern: Some(format!(r"^({escaped_root}|\.|\./|\.\./).*$")),
+                pattern: Some(workspace_path_pattern.clone()),
                 validator: None,
                 min: None,
                 max: None,
@@ -602,7 +608,7 @@ async fn apply_workspace_sandbox_permissions(
                 parameter: "path".to_string(),
                 restriction_type: RestrictionType::Pattern,
                 values: None,
-                pattern: Some(format!(r"^({escaped_root}|\.|\./|\.\./).*$")),
+                pattern: Some(workspace_path_pattern.clone()),
                 validator: None,
                 min: None,
                 max: None,
@@ -617,7 +623,7 @@ async fn apply_workspace_sandbox_permissions(
     ];
 
     let allow_shell_pattern = format!(
-        r"^\s*(?:cd\s+({}|\.|\./|\.\./)(?:\s*(?:&&|;).*)?|pwd(?:\s*(?:&&|;).*)?|ls(?:\s+[^;&|]+)?(?:\s*(?:&&|;).*)?|find\s+({}|\.|\./|\.\./)[^;&|]*(?:\s*(?:&&|;).*)?|rg\b[^;&|]*(?:\s*(?:&&|;).*)?|grep\b[^;&|]*(?:\s*(?:&&|;).*)?|cat\s+({}|\.|\./|\.\./)[^;&|]*(?:\s*(?:&&|;).*)?)\s*$",
+        r"^\s*(?:cd\s+({}|\.|\./|\.\./)|pwd|ls(?:\s+[^;&|]+)?|find\s+({}|\.|\./|\.\./)[^;&|]*|rg\b[^;&|]*|grep\b[^;&|]*|cat\s+({}|\.|\./|\.\./)[^;&|]*)\s*$",
         escaped_root, escaped_root, escaped_root
     );
 
@@ -626,35 +632,158 @@ async fn apply_workspace_sandbox_permissions(
         allowed: true,
         priority: 90,
         conditions: Vec::new(),
-        parameter_restrictions: vec![
-            ParameterRestriction {
-                parameter: "command".to_string(),
-                restriction_type: RestrictionType::Pattern,
-                values: None,
-                pattern: Some(allow_shell_pattern),
-                validator: None,
-                min: None,
-                max: None,
-                required: true,
-                description: Some("bash.command 仅允许 workspace 内安全读操作".to_string()),
-            },
-            ParameterRestriction {
-                parameter: "command".to_string(),
-                restriction_type: RestrictionType::Pattern,
-                values: None,
-                pattern: Some("^(?!.*(?:\\|\\||&|`|\\$\\(|python\\s+-c|node\\s+-e|ruby\\s+-e|perl\\s+-e|curl\\s+|wget\\s+|ssh\\s+|scp\\s+|rsync\\s+|nc\\s+|telnet\\s+|sudo\\s+)).*$".to_string()),
-                validator: None,
-                min: None,
-                max: None,
-                required: true,
-                description: Some("bash.command 禁止管道、联网与高风险执行".to_string()),
-            },
-        ],
+        parameter_restrictions: vec![ParameterRestriction {
+            parameter: "command".to_string(),
+            restriction_type: RestrictionType::Pattern,
+            values: None,
+            pattern: Some(allow_shell_pattern.clone()),
+            validator: None,
+            min: None,
+            max: None,
+            required: true,
+            description: Some("bash.command 仅允许 workspace 内安全读操作".to_string()),
+        }],
         scope: PermissionScope::Session,
         reason: Some("本地 sandbox：bash 仅允许 workspace 内安全命令".to_string()),
         expires_at: None,
         metadata: HashMap::new(),
     });
+
+    permissions.push(ToolPermission {
+        tool: "Task".to_string(),
+        allowed: true,
+        priority: 88,
+        conditions: Vec::new(),
+        parameter_restrictions: vec![ParameterRestriction {
+            parameter: "command".to_string(),
+            restriction_type: RestrictionType::Pattern,
+            values: None,
+            pattern: Some(allow_shell_pattern.clone()),
+            validator: None,
+            min: None,
+            max: None,
+            required: true,
+            description: Some("Task.command 仅允许 workspace 内安全命令".to_string()),
+        }],
+        scope: PermissionScope::Session,
+        reason: Some("本地 sandbox：Task 仅允许 workspace 内安全命令".to_string()),
+        expires_at: None,
+        metadata: HashMap::new(),
+    });
+
+    permissions.push(ToolPermission {
+        tool: "lsp".to_string(),
+        allowed: true,
+        priority: 88,
+        conditions: Vec::new(),
+        parameter_restrictions: vec![ParameterRestriction {
+            parameter: "path".to_string(),
+            restriction_type: RestrictionType::Pattern,
+            values: None,
+            pattern: Some(workspace_path_pattern.clone()),
+            validator: None,
+            min: None,
+            max: None,
+            required: true,
+            description: Some("lsp.path 必须在 workspace 内或相对路径".to_string()),
+        }],
+        scope: PermissionScope::Session,
+        reason: Some("允许在 workspace 内使用 LSP".to_string()),
+        expires_at: None,
+        metadata: HashMap::new(),
+    });
+
+    permissions.push(ToolPermission {
+        tool: "NotebookEdit".to_string(),
+        allowed: true,
+        priority: 88,
+        conditions: Vec::new(),
+        parameter_restrictions: vec![ParameterRestriction {
+            parameter: "notebook_path".to_string(),
+            restriction_type: RestrictionType::Pattern,
+            values: None,
+            pattern: Some(workspace_abs_path_pattern.clone()),
+            validator: None,
+            min: None,
+            max: None,
+            required: true,
+            description: Some("NotebookEdit.notebook_path 必须是 workspace 内绝对路径".to_string()),
+        }],
+        scope: PermissionScope::Session,
+        reason: Some("允许编辑 workspace 内 Notebook".to_string()),
+        expires_at: None,
+        metadata: HashMap::new(),
+    });
+
+    permissions.push(ToolPermission {
+        tool: "analyze_image".to_string(),
+        allowed: true,
+        priority: 88,
+        conditions: Vec::new(),
+        parameter_restrictions: vec![ParameterRestriction {
+            parameter: "file_path".to_string(),
+            restriction_type: RestrictionType::Pattern,
+            values: None,
+            pattern: Some(analyze_image_path_pattern),
+            validator: None,
+            min: None,
+            max: None,
+            required: true,
+            description: Some(
+                "analyze_image.file_path 仅允许 base64、workspace 内绝对路径或相对路径".to_string(),
+            ),
+        }],
+        scope: PermissionScope::Session,
+        reason: Some("允许分析 workspace 内图片或 base64 数据".to_string()),
+        expires_at: None,
+        metadata: HashMap::new(),
+    });
+
+    permissions.push(ToolPermission {
+        tool: "WebFetch".to_string(),
+        allowed: true,
+        priority: 88,
+        conditions: Vec::new(),
+        parameter_restrictions: vec![ParameterRestriction {
+            parameter: "url".to_string(),
+            restriction_type: RestrictionType::Pattern,
+            values: None,
+            pattern: Some(safe_https_url_pattern),
+            validator: None,
+            min: None,
+            max: None,
+            required: true,
+            description: Some("WebFetch.url 仅允许 https 且禁止内网/本机地址".to_string()),
+        }],
+        scope: PermissionScope::Session,
+        reason: Some("允许安全的 WebFetch 请求".to_string()),
+        expires_at: None,
+        metadata: HashMap::new(),
+    });
+
+    for tool_name in [
+        "Skill",
+        "TaskOutput",
+        "KillShell",
+        "TodoWrite",
+        "EnterPlanMode",
+        "ExitPlanMode",
+        "WebSearch",
+        "ask",
+        "three_stage_workflow",
+    ] {
+        permissions.push(ToolPermission {
+            tool: tool_name.to_string(),
+            allowed: true,
+            priority: 88,
+            conditions: Vec::new(),
+            parameter_restrictions: Vec::new(),
+            scope: PermissionScope::Session,
+            reason: Some(format!("允许默认工具: {tool_name}")),
+            expires_at: None,
+            metadata: HashMap::new(),
+        });
+    }
 
     permissions.push(ToolPermission {
         tool: "*".to_string(),
@@ -1062,6 +1191,59 @@ pub async fn aster_agent_confirm(
     Ok(())
 }
 
+/// Elicitation 回填请求
+#[derive(Debug, Deserialize)]
+pub struct SubmitElicitationResponseRequest {
+    pub request_id: String,
+    pub user_data: serde_json::Value,
+}
+
+fn validate_elicitation_submission(session_id: &str, request_id: &str) -> Result<String, String> {
+    let trimmed_session_id = session_id.trim().to_string();
+    if trimmed_session_id.is_empty() {
+        return Err("session_id 不能为空".to_string());
+    }
+    if request_id.trim().is_empty() {
+        return Err("request_id 不能为空".to_string());
+    }
+    Ok(trimmed_session_id)
+}
+
+/// 提交 elicitation 回答（用于 ask/lsp 等需要用户输入的流程）
+#[tauri::command]
+pub async fn aster_agent_submit_elicitation_response(
+    state: State<'_, AsterAgentState>,
+    session_id: String,
+    request: SubmitElicitationResponseRequest,
+) -> Result<(), String> {
+    let session_id = validate_elicitation_submission(&session_id, &request.request_id)?;
+
+    tracing::info!(
+        "[AsterAgent] 提交 elicitation 响应: session={}, request_id={}",
+        session_id,
+        request.request_id
+    );
+
+    let message =
+        Message::user().with_content(MessageContent::action_required_elicitation_response(
+            request.request_id.clone(),
+            request.user_data,
+        ));
+
+    let session_config = SessionConfigBuilder::new(&session_id).build();
+
+    let agent_arc = state.get_agent_arc();
+    let guard = agent_arc.read().await;
+    let agent = guard.as_ref().ok_or("Agent not initialized")?;
+
+    let _ = agent
+        .reply(message, session_config, None)
+        .await
+        .map_err(|e| format!("提交 elicitation 响应失败: {e}"))?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1080,6 +1262,24 @@ mod tests {
         assert_eq!(request.session_id, "test-session");
         assert_eq!(request.event_name, "agent_stream");
         assert_eq!(request.workspace_id, "workspace-test");
+    }
+
+    #[test]
+    fn test_validate_elicitation_submission_rejects_empty_session_id() {
+        let result = validate_elicitation_submission("   ", "req-1");
+        assert_eq!(result, Err("session_id 不能为空".to_string()));
+    }
+
+    #[test]
+    fn test_validate_elicitation_submission_rejects_empty_request_id() {
+        let result = validate_elicitation_submission("session-1", "   ");
+        assert_eq!(result, Err("request_id 不能为空".to_string()));
+    }
+
+    #[test]
+    fn test_validate_elicitation_submission_trims_session_id() {
+        let result = validate_elicitation_submission("  session-1  ", "req-1");
+        assert_eq!(result, Ok("session-1".to_string()));
     }
 }
 

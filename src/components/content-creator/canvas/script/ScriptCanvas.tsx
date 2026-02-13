@@ -17,8 +17,18 @@ const Container = styled.div`
   display: flex;
   flex-direction: column;
   height: 100%;
+  padding: 16px;
+`;
+
+const InnerContainer = styled.div`
+  display: flex;
+  flex-direction: column;
+  height: 100%;
   background: hsl(var(--background));
-  border-right: 1px solid hsl(var(--border));
+  border-radius: 12px;
+  border: 1px solid hsl(var(--border));
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 `;
 
 const Header = styled.div`
@@ -200,116 +210,118 @@ export const ScriptCanvas: React.FC<ScriptCanvasProps> = memo(
 
     return (
       <Container>
-        <Header>
-          <Title>剧本编辑器</Title>
-          <Button variant="ghost" size="icon" onClick={onClose}>
-            <X className="h-4 w-4" />
-          </Button>
-        </Header>
+        <InnerContainer>
+          <Header>
+            <Title>剧本</Title>
+            <Button variant="ghost" size="icon" onClick={onClose}>
+              <X className="h-4 w-4" />
+            </Button>
+          </Header>
 
-        <Content>
-          <SceneList>
-            <SceneListHeader>
-              <span className="text-sm font-medium">场景</span>
-              <Button variant="ghost" size="icon" onClick={handleAddScene}>
-                <Plus className="h-4 w-4" />
-              </Button>
-            </SceneListHeader>
-            <ScrollArea className="flex-1">
-              {state.scenes.map((scene) => (
-                <SceneItem
-                  key={scene.id}
-                  $active={scene.id === state.currentSceneId}
-                  onClick={() => handleSceneSelect(scene.id)}
-                >
-                  <SceneNumber>第{scene.number}场</SceneNumber>
-                  <SceneLocation>
-                    {scene.location}（{scene.time}）
-                  </SceneLocation>
-                </SceneItem>
-              ))}
-            </ScrollArea>
-          </SceneList>
+          <Content>
+            <SceneList>
+              <SceneListHeader>
+                <span className="text-sm font-medium">场景</span>
+                <Button variant="ghost" size="icon" onClick={handleAddScene}>
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </SceneListHeader>
+              <ScrollArea className="flex-1">
+                {state.scenes.map((scene) => (
+                  <SceneItem
+                    key={scene.id}
+                    $active={scene.id === state.currentSceneId}
+                    onClick={() => handleSceneSelect(scene.id)}
+                  >
+                    <SceneNumber>第{scene.number}场</SceneNumber>
+                    <SceneLocation>
+                      {scene.location}（{scene.time}）
+                    </SceneLocation>
+                  </SceneItem>
+                ))}
+              </ScrollArea>
+            </SceneList>
 
-          <EditorArea>
-            {currentScene && (
-              <>
-                <SceneHeader>
-                  <Input
-                    value={currentScene.location}
-                    onChange={(e) =>
-                      handleUpdateScene({ location: e.target.value })
-                    }
-                    placeholder="场景地点"
-                    className="w-40"
-                  />
-                  <Input
-                    value={currentScene.time}
-                    onChange={(e) =>
-                      handleUpdateScene({ time: e.target.value })
-                    }
-                    placeholder="时间"
-                    className="w-20"
-                  />
-                  <Textarea
-                    value={currentScene.description || ""}
-                    onChange={(e) =>
-                      handleUpdateScene({ description: e.target.value })
-                    }
-                    placeholder="场景描述..."
-                    className="flex-1 min-h-[40px] resize-none"
-                  />
-                </SceneHeader>
+            <EditorArea>
+              {currentScene && (
+                <>
+                  <SceneHeader>
+                    <Input
+                      value={currentScene.location}
+                      onChange={(e) =>
+                        handleUpdateScene({ location: e.target.value })
+                      }
+                      placeholder="场景地点"
+                      className="w-40"
+                    />
+                    <Input
+                      value={currentScene.time}
+                      onChange={(e) =>
+                        handleUpdateScene({ time: e.target.value })
+                      }
+                      placeholder="时间"
+                      className="w-20"
+                    />
+                    <Textarea
+                      value={currentScene.description || ""}
+                      onChange={(e) =>
+                        handleUpdateScene({ description: e.target.value })
+                      }
+                      placeholder="场景描述..."
+                      className="flex-1 min-h-[40px] resize-none"
+                    />
+                  </SceneHeader>
 
-                <ScrollArea className="flex-1">
-                  <DialogueList>
-                    {currentScene.dialogues.map((dialogue) => (
-                      <DialogueItem key={dialogue.id}>
-                        <DialogueHeader>
-                          <Input
-                            value={dialogue.characterName}
+                  <ScrollArea className="flex-1">
+                    <DialogueList>
+                      {currentScene.dialogues.map((dialogue) => (
+                        <DialogueItem key={dialogue.id}>
+                          <DialogueHeader>
+                            <Input
+                              value={dialogue.characterName}
+                              onChange={(e) =>
+                                handleUpdateDialogue(dialogue.id, {
+                                  characterName: e.target.value,
+                                })
+                              }
+                              placeholder="角色名"
+                              className="w-32"
+                            />
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDeleteDialogue(dialogue.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </DialogueHeader>
+                          <Textarea
+                            value={dialogue.content}
                             onChange={(e) =>
                               handleUpdateDialogue(dialogue.id, {
-                                characterName: e.target.value,
+                                content: e.target.value,
                               })
                             }
-                            placeholder="角色名"
-                            className="w-32"
+                            placeholder="对白内容..."
+                            className="min-h-[60px]"
                           />
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleDeleteDialogue(dialogue.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </DialogueHeader>
-                        <Textarea
-                          value={dialogue.content}
-                          onChange={(e) =>
-                            handleUpdateDialogue(dialogue.id, {
-                              content: e.target.value,
-                            })
-                          }
-                          placeholder="对白内容..."
-                          className="min-h-[60px]"
-                        />
-                      </DialogueItem>
-                    ))}
-                    <Button
-                      variant="outline"
-                      className="w-full"
-                      onClick={handleAddDialogue}
-                    >
-                      <Plus className="h-4 w-4 mr-2" />
-                      添加对白
-                    </Button>
-                  </DialogueList>
-                </ScrollArea>
-              </>
-            )}
-          </EditorArea>
-        </Content>
+                        </DialogueItem>
+                      ))}
+                      <Button
+                        variant="outline"
+                        className="w-full"
+                        onClick={handleAddDialogue}
+                      >
+                        <Plus className="h-4 w-4 mr-2" />
+                        添加对白
+                      </Button>
+                    </DialogueList>
+                  </ScrollArea>
+                </>
+              )}
+            </EditorArea>
+          </Content>
+        </InnerContainer>
       </Container>
     );
   },

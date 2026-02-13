@@ -97,6 +97,33 @@ async fn select_credential_for_request(
         return Ok(cred);
     }
 
+    if !state.allow_provider_fallback {
+        eprintln!(
+            "[{log_prefix}] 已禁用自动降级（retry.auto_switch_provider=false），仅从 Provider Pool 选择"
+        );
+        return match state.pool_service.select_credential_with_client_check(
+            db,
+            selected_provider,
+            Some(model),
+            Some(client_type),
+        ) {
+            Ok(cred) => {
+                if cred.is_some() {
+                    eprintln!("[{log_prefix}] 找到凭证: provider={selected_provider}");
+                } else {
+                    eprintln!(
+                        "[{log_prefix}] 未找到凭证: provider={selected_provider}（自动降级已禁用）"
+                    );
+                }
+                Ok(cred)
+            }
+            Err(e) => {
+                eprintln!("[{log_prefix}] 选择凭证失败: {e}");
+                Ok(None)
+            }
+        };
+    }
+
     let provider_id_hint = selected_provider.to_lowercase();
     match state
         .pool_service
@@ -536,21 +563,37 @@ pub async fn chat_completions(
         return response;
     }
 
-    // 回退到旧的单凭证模式（仅当选择的 Provider 是 Kiro 时）
-    // 如果选择的 Provider 不是 Kiro，且凭证池中没有找到凭证，返回错误
+    // 回退到旧的单凭证模式（仅当允许自动降级且选择的 Provider 是 Kiro 时）
+    // 其余情况（含禁用自动降级）直接返回无可用凭证错误
     // **Validates: Requirements 3.2**
-    if selected_provider.to_lowercase() != "kiro" {
+    if !state.allow_provider_fallback || selected_provider.to_lowercase() != "kiro" {
+        let reason = if !state.allow_provider_fallback {
+            "auto fallback disabled by retry.auto_switch_provider=false"
+        } else {
+            "legacy mode only supports Kiro"
+        };
         state.logs.write().await.add(
             "error",
             &format!(
-                "[ROUTE] No pool credential found for '{selected_provider}' (client_type={client_type}), and legacy mode only supports Kiro"
+                "[ROUTE] No pool credential found for '{selected_provider}' (client_type={client_type}), {reason}"
             ),
         );
+        let message = if !state.allow_provider_fallback {
+            format!(
+                "没有找到可用的 '{}' 凭证（已禁用自动降级）。请在凭证池中添加对应的凭证。",
+                selected_provider
+            )
+        } else {
+            format!(
+                "没有找到可用的 '{}' 凭证。请在凭证池中添加对应的凭证。",
+                selected_provider
+            )
+        };
         return (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({
                 "error": {
-                    "message": format!("没有找到可用的 '{}' 凭证。请在凭证池中添加对应的凭证。", selected_provider),
+                    "message": message,
                     "type": "no_credential_error",
                     "code": "no_credential"
                 }
@@ -1085,23 +1128,39 @@ pub async fn anthropic_messages(
         return response;
     }
 
-    // 回退到旧的单凭证模式（仅当选择的 Provider 是 Kiro 时）
-    // 如果选择的 Provider 不是 Kiro，且凭证池中没有找到凭证，返回错误
+    // 回退到旧的单凭证模式（仅当允许自动降级且选择的 Provider 是 Kiro 时）
+    // 其余情况（含禁用自动降级）直接返回无可用凭证错误
     // **Validates: Requirements 3.2**
-    if selected_provider.to_lowercase() != "kiro" {
+    if !state.allow_provider_fallback || selected_provider.to_lowercase() != "kiro" {
+        let reason = if !state.allow_provider_fallback {
+            "auto fallback disabled by retry.auto_switch_provider=false"
+        } else {
+            "legacy mode only supports Kiro"
+        };
         state.logs.write().await.add(
             "error",
             &format!(
-                "[ROUTE] No pool credential found for '{selected_provider}' (client_type={client_type}), and legacy mode only supports Kiro"
+                "[ROUTE] No pool credential found for '{selected_provider}' (client_type={client_type}), {reason}"
             ),
         );
+        let message = if !state.allow_provider_fallback {
+            format!(
+                "没有找到可用的 '{}' 凭证（已禁用自动降级）。请在凭证池中添加对应的凭证。",
+                selected_provider
+            )
+        } else {
+            format!(
+                "没有找到可用的 '{}' 凭证。请在凭证池中添加对应的凭证。",
+                selected_provider
+            )
+        };
         return (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({
                 "type": "error",
                 "error": {
                     "type": "no_credential_error",
-                    "message": format!("没有找到可用的 '{}' 凭证。请在凭证池中添加对应的凭证。", selected_provider)
+                    "message": message
                 }
             })),
         )

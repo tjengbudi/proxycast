@@ -442,6 +442,8 @@ pub struct AppState {
     pub injection_enabled: Arc<RwLock<bool>>,
     /// 请求处理器
     pub processor: Arc<RequestProcessor>,
+    /// 是否允许自动降级/切换 Provider（来自配置 retry.auto_switch_provider）
+    pub allow_provider_fallback: bool,
     /// WebSocket 连接管理器
     pub ws_manager: Arc<WsConnectionManager>,
     /// WebSocket 统计信息
@@ -844,6 +846,12 @@ async fn run_server(
     let api_key_service =
         Arc::new(proxycast_services::api_key_provider_service::ApiKeyProviderService::new());
 
+    // 是否允许自动降级/切换 Provider（默认开启，兼容旧行为）
+    let allow_provider_fallback = config
+        .as_ref()
+        .map(|c| c.retry.auto_switch_provider)
+        .unwrap_or(true);
+
     let state = AppState {
         api_key: api_key.to_string(),
         base_url,
@@ -858,6 +866,7 @@ async fn run_server(
         injector: Arc::new(RwLock::new(injector)),
         injection_enabled: Arc::new(RwLock::new(injection_enabled)),
         processor: processor.clone(),
+        allow_provider_fallback,
         ws_manager,
         ws_stats,
         hot_reload_manager: hot_reload_manager.clone(),

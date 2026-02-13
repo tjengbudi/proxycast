@@ -41,7 +41,7 @@ export type CreationMode = "guided" | "fast" | "hybrid" | "framework";
 /**
  * 布局模式
  */
-export type LayoutMode = "chat" | "chat-canvas";
+export type LayoutMode = "chat" | "chat-canvas" | "canvas";
 
 /**
  * 步骤类型

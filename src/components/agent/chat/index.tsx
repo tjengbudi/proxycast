@@ -41,6 +41,10 @@ import {
 import { ArtifactRenderer, ArtifactToolbar } from "@/components/artifact";
 import { useAtomValue, useSetAtom } from "jotai";
 import { createInitialMusicState } from "@/components/content-creator/canvas/music/types";
+import {
+  createInitialNovelState,
+  countWords as countNovelWords,
+} from "@/components/content-creator/canvas/novel/types";
 import { parseLyrics } from "@/components/content-creator/canvas/music/utils/lyricsParser";
 import {
   generateContentCreationPrompt,
@@ -64,7 +68,11 @@ import { SettingsTabs } from "@/types/settings";
 import { buildHomeAgentParams } from "@/lib/workspace/navigation";
 
 import type { MessageImage } from "./types";
-import type { ThemeType, LayoutMode } from "@/components/content-creator/types";
+import type {
+  ThemeType,
+  LayoutMode,
+  StepStatus,
+} from "@/components/content-creator/types";
 import type { A2UIFormData } from "@/components/content-creator/a2ui/types";
 import { getFileToStepMap } from "./utils/workflowMapping";
 
@@ -92,7 +100,6 @@ const PageContainer = styled.div`
   display: flex;
   height: 100%;
   width: 100%;
-  background-color: hsl(var(--background));
 `;
 
 const MainArea = styled.div`
@@ -110,6 +117,15 @@ const ChatContainer = styled.div`
   flex: 1;
   min-height: 0;
   height: 100%;
+`;
+
+const ChatContainerInner = styled.div`
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
 `;
 
 const ChatContent = styled.div`
@@ -133,6 +149,15 @@ function projectTypeToTheme(projectType: ProjectType): ThemeType {
     return "general";
   }
   return projectType as ThemeType;
+}
+
+export interface WorkflowProgressSnapshot {
+  steps: Array<{
+    id: string;
+    title: string;
+    status: StepStatus;
+  }>;
+  currentIndex: number;
 }
 
 /**
@@ -183,6 +208,10 @@ export function AgentChatPage({
   initialCreationMode,
   lockTheme = false,
   hideHistoryToggle = false,
+  showChatPanel = true,
+  onBackToProjectManagement,
+  hideInlineStepProgress = false,
+  onWorkflowProgressChange,
   newChatAt,
   onRecommendationClick: _onRecommendationClick,
   onHasMessagesChange,
@@ -194,6 +223,12 @@ export function AgentChatPage({
   initialCreationMode?: CreationMode;
   lockTheme?: boolean;
   hideHistoryToggle?: boolean;
+  showChatPanel?: boolean;
+  onBackToProjectManagement?: () => void;
+  hideInlineStepProgress?: boolean;
+  onWorkflowProgressChange?: (
+    snapshot: WorkflowProgressSnapshot | null,
+  ) => void;
   newChatAt?: number;
   onRecommendationClick?: (shortLabel: string, fullPrompt: string) => void;
   onHasMessagesChange?: (hasMessages: boolean) => void;
@@ -230,6 +265,8 @@ export function AgentChatPage({
 
   // 画布状态（支持多种画布类型）
   const [canvasState, setCanvasState] = useState<CanvasStateUnion | null>(null);
+  const [novelChapterListCollapsed, setNovelChapterListCollapsed] =
+    useState(false);
 
   // General 主题专用画布状态
   const [generalCanvasState, setGeneralCanvasState] =
@@ -624,6 +661,63 @@ export function AgentChatPage({
     [],
   );
 
+  const looksLikeSerializedNovelState = useCallback((content: string) => {
+    const trimmed = content.trim();
+    if (!trimmed) return false;
+
+    const jsonCandidate =
+      trimmed.match(/^```json\s*([\s\S]*?)```$/i)?.[1] || trimmed;
+
+    if (!(jsonCandidate.startsWith("[") || jsonCandidate.startsWith("{"))) {
+      return false;
+    }
+
+    return (
+      jsonCandidate.includes('"title"') &&
+      (jsonCandidate.includes('"number"') ||
+        jsonCandidate.includes('"chapters"'))
+    );
+  }, []);
+
+  const upsertNovelCanvasState = useCallback(
+    (prev: CanvasStateUnion | null, content: string) => {
+      if (!prev || prev.type !== "novel") {
+        return createInitialNovelState(content);
+      }
+
+      if (looksLikeSerializedNovelState(content)) {
+        return createInitialNovelState(content);
+      }
+
+      const targetChapterId =
+        prev.currentChapterId || prev.chapters[0]?.id || crypto.randomUUID();
+      const now = Date.now();
+
+      if (prev.chapters.length === 0) {
+        const initialized = createInitialNovelState(content);
+        return {
+          ...initialized,
+          currentChapterId: initialized.chapters[0]?.id || targetChapterId,
+        };
+      }
+
+      return {
+        ...prev,
+        chapters: prev.chapters.map((chapter) =>
+          chapter.id === targetChapterId
+            ? {
+                ...chapter,
+                content,
+                wordCount: countNovelWords(content),
+                updatedAt: now,
+              }
+            : chapter,
+        ),
+      };
+    },
+    [looksLikeSerializedNovelState],
+  );
+
   // 监听 AI 消息变化，自动提取文档内容
   useEffect(() => {
     if (!isContentCreationMode) return;
@@ -653,6 +747,10 @@ export function AgentChatPage({
           return prev;
         }
 
+        if (mappedTheme === "novel") {
+          return upsertNovelCanvasState(prev, docContent);
+        }
+
         if (!prev || prev.type !== "document") {
           return createInitialDocumentState(docContent);
         }
@@ -674,7 +772,13 @@ export function AgentChatPage({
       // 自动打开画布
       setLayoutMode("chat-canvas");
     }
-  }, [messages, isContentCreationMode, extractDocumentContent, mappedTheme]);
+  }, [
+    messages,
+    isContentCreationMode,
+    extractDocumentContent,
+    mappedTheme,
+    upsertNovelCanvasState,
+  ]);
 
   const handleSend = useCallback(
     async (
@@ -783,6 +887,51 @@ export function AgentChatPage({
   const hasMessages = messages.length > 0;
 
   useEffect(() => {
+    if (!canvasState || canvasState.type !== "novel") {
+      setNovelChapterListCollapsed(false);
+    }
+  }, [canvasState]);
+
+  useEffect(() => {
+    if (showChatPanel) {
+      setLayoutMode((previous) =>
+        previous === "canvas" ? "chat-canvas" : previous,
+      );
+      return;
+    }
+
+    setShowSidebar(false);
+
+    if (layoutMode === "canvas") {
+      return;
+    }
+
+    if (layoutMode === "chat-canvas") {
+      setLayoutMode("canvas");
+      return;
+    }
+
+    const fallbackContent = "# 新文档\n\n在这里开始编写内容...";
+
+    if (activeTheme === "general") {
+      setGeneralCanvasState((previous) => ({
+        ...previous,
+        isOpen: true,
+        contentType:
+          previous.contentType === "empty" ? "markdown" : previous.contentType,
+        content: previous.content || fallbackContent,
+      }));
+    } else if (!canvasState) {
+      const initialState =
+        createInitialCanvasState(mappedTheme, fallbackContent) ||
+        createInitialDocumentState(fallbackContent);
+      setCanvasState(initialState);
+    }
+
+    setLayoutMode("canvas");
+  }, [showChatPanel, layoutMode, activeTheme, canvasState, mappedTheme]);
+
+  useEffect(() => {
     onHasMessagesChange?.(hasMessages);
   }, [hasMessages, onHasMessagesChange]);
 
@@ -833,6 +982,11 @@ export function AgentChatPage({
             }
             return { ...prev, sections };
           }
+
+          if (mappedTheme === "novel") {
+            return upsertNovelCanvasState(prev, latestContent);
+          }
+
           if (!prev || prev.type !== "document") {
             return createInitialDocumentState(latestContent);
           }
@@ -841,11 +995,47 @@ export function AgentChatPage({
         setLayoutMode("chat-canvas");
       }
     }
-  }, [taskFiles, mappedTheme]);
+  }, [taskFiles, mappedTheme, upsertNovelCanvasState]);
 
   const handleToggleSidebar = () => {
+    if (!showChatPanel) {
+      return;
+    }
     setShowSidebar(!showSidebar);
   };
+
+  const handleToggleNovelChapterList = useCallback(() => {
+    setNovelChapterListCollapsed((prev) => !prev);
+  }, []);
+
+  const handleAddNovelChapter = useCallback(() => {
+    setCanvasState((prev) => {
+      if (!prev || prev.type !== "novel") {
+        return prev;
+      }
+
+      const now = Date.now();
+      const chapterNumber = prev.chapters.length + 1;
+      const title = `第${chapterNumber}章`;
+      const newChapter = {
+        id: crypto.randomUUID(),
+        number: chapterNumber,
+        title,
+        content: `# ${title}\n\n`,
+        wordCount: 0,
+        status: "draft" as const,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      return {
+        ...prev,
+        chapters: [...prev.chapters, newChapter],
+        currentChapterId: newChapter.id,
+      };
+    });
+    setNovelChapterListCollapsed(false);
+  }, []);
 
   // 切换画布显示
   const handleToggleCanvas = useCallback(() => {
@@ -883,11 +1073,15 @@ export function AgentChatPage({
   // 关闭画布
   const handleCloseCanvas = useCallback(() => {
     setLayoutMode("chat");
+    setNovelChapterListCollapsed(false);
     // General 主题关闭画布状态
     if (activeTheme === "general") {
       setGeneralCanvasState((prev) => ({ ...prev, isOpen: false }));
     }
   }, [activeTheme]);
+
+  const showNovelNavbarControls =
+    layoutMode !== "chat" && canvasState?.type === "novel";
 
   // 处理文件写入 - 同名文件更新内容，不同名文件独立保存
   const handleWriteFile = useCallback(
@@ -1072,6 +1266,10 @@ export function AgentChatPage({
           };
         }
 
+        if (mappedTheme === "novel") {
+          return upsertNovelCanvasState(prev, content);
+        }
+
         // 文档类型画布
         if (!prev || prev.type !== "document") {
           console.log("[AgentChatPage] 创建新文档状态");
@@ -1095,6 +1293,7 @@ export function AgentChatPage({
       completeStep,
       mappedTheme,
       saveSessionFile,
+      upsertNovelCanvasState,
     ],
   );
 
@@ -1187,6 +1386,10 @@ export function AgentChatPage({
           return { ...prev, sections };
         }
 
+        if (mappedTheme === "novel") {
+          return upsertNovelCanvasState(prev, content);
+        }
+
         // 文档类型画布
         if (!prev || prev.type !== "document") {
           return createInitialDocumentState(content);
@@ -1200,7 +1403,7 @@ export function AgentChatPage({
       // 打开画布
       setLayoutMode("chat-canvas");
     },
-    [activeTheme, mappedTheme],
+    [activeTheme, mappedTheme, upsertNovelCanvasState],
   );
 
   // 处理代码块点击 - 在画布中显示代码（General 主题专用）
@@ -1238,7 +1441,7 @@ export function AgentChatPage({
   // 判断是否应该折叠代码块（当画布打开且有 artifact 时）
   const shouldCollapseCodeBlocks = useMemo(() => {
     if (activeTheme !== "general") return false;
-    if (layoutMode !== "chat-canvas") return false;
+    if (layoutMode === "chat") return false;
     // 当画布打开时折叠代码块
     return artifacts.length > 0 || generalCanvasState.isOpen;
   }, [activeTheme, layoutMode, artifacts.length, generalCanvasState.isOpen]);
@@ -1264,6 +1467,10 @@ export function AgentChatPage({
             return { ...prev, sections };
           }
 
+          if (mappedTheme === "novel") {
+            return upsertNovelCanvasState(prev, file.content!);
+          }
+
           // 文档类型画布
           if (!prev || prev.type !== "document") {
             return createInitialDocumentState(file.content!);
@@ -1277,7 +1484,7 @@ export function AgentChatPage({
         setLayoutMode("chat-canvas");
       }
     },
-    [mappedTheme],
+    [mappedTheme, upsertNovelCanvasState],
   );
 
   // A2UI 表单提交处理
@@ -1349,6 +1556,57 @@ export function AgentChatPage({
   // 判断是否应该显示聊天布局（有消息）
   const showChatLayout = hasMessages;
 
+  const workflowProgressSignature = useMemo(() => {
+    const shouldShow = isContentCreationMode && hasMessages && steps.length > 0;
+    if (!shouldShow) {
+      return "hidden";
+    }
+
+    const stepSignature = steps
+      .map((step) => `${step.id}:${step.status}:${step.title}`)
+      .join("|");
+    return `${currentStepIndex}:${stepSignature}`;
+  }, [isContentCreationMode, hasMessages, steps, currentStepIndex]);
+
+  const lastWorkflowProgressSignatureRef = useRef<string>("");
+  useEffect(() => {
+    if (!onWorkflowProgressChange) return;
+    if (
+      lastWorkflowProgressSignatureRef.current === workflowProgressSignature
+    ) {
+      return;
+    }
+    lastWorkflowProgressSignatureRef.current = workflowProgressSignature;
+
+    const shouldShow = isContentCreationMode && hasMessages && steps.length > 0;
+    if (!shouldShow) {
+      onWorkflowProgressChange(null);
+      return;
+    }
+
+    onWorkflowProgressChange({
+      currentIndex: currentStepIndex,
+      steps: steps.map((step) => ({
+        id: step.id,
+        title: step.title,
+        status: step.status,
+      })),
+    });
+  }, [
+    onWorkflowProgressChange,
+    workflowProgressSignature,
+    isContentCreationMode,
+    hasMessages,
+    steps,
+    currentStepIndex,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      onWorkflowProgressChange?.(null);
+    };
+  }, [onWorkflowProgressChange]);
+
   const handleManageProviders = useCallback(() => {
     _onNavigate?.("settings", {
       tab: SettingsTabs.Providers,
@@ -1358,90 +1616,95 @@ export function AgentChatPage({
   // 聊天区域内容
   const chatContent = (
     <ChatContainer>
-      {/* 步骤进度条 - 仅在内容创作模式且有消息时显示 */}
-      {isContentCreationMode && hasMessages && steps.length > 0 && (
-        <StepProgress
-          steps={steps}
-          currentIndex={currentStepIndex}
-          onStepClick={goToStep}
-        />
-      )}
+      <ChatContainerInner>
+        {/* 步骤进度条 - 仅在内容创作模式且有消息时显示 */}
+        {!hideInlineStepProgress &&
+          isContentCreationMode &&
+          hasMessages &&
+          steps.length > 0 && (
+            <StepProgress
+              steps={steps}
+              currentIndex={currentStepIndex}
+              onStepClick={goToStep}
+            />
+          )}
 
-      {showChatLayout ? (
-        <ChatContent>
-          <MessageList
-            messages={messages}
-            onDeleteMessage={deleteMessage}
-            onEditMessage={editMessage}
-            onA2UISubmit={handleA2UISubmit}
-            onWriteFile={handleWriteFile}
-            onFileClick={handleFileClick}
-            onPermissionResponse={handlePermissionResponse}
-            collapseCodeBlocks={shouldCollapseCodeBlocks}
-            onCodeBlockClick={handleCodeBlockClick}
-          />
-        </ChatContent>
-      ) : (
-        <EmptyState
-          input={input}
-          setInput={setInput}
-          onSend={(text) => {
-            handleSend([], false, false, text);
-          }}
-          providerType={providerType}
-          setProviderType={setProviderType}
-          model={model}
-          setModel={setModel}
-          onManageProviders={handleManageProviders}
-          creationMode={creationMode}
-          onCreationModeChange={setCreationMode}
-          activeTheme={activeTheme}
-          onThemeChange={(theme) => {
-            if (!lockTheme) {
-              setActiveTheme(theme);
-            }
-          }}
-          showThemeTabs={false}
-          onRecommendationClick={(shortLabel, fullPrompt) => {
-            // 直接将推荐提示词放入输入框，不创建项目
-            setInput(fullPrompt);
-          }}
-        />
-      )}
-
-      {showChatLayout && (
-        <>
-          <Inputbar
+        {showChatLayout ? (
+          <ChatContent>
+            <MessageList
+              messages={messages}
+              onDeleteMessage={deleteMessage}
+              onEditMessage={editMessage}
+              onA2UISubmit={handleA2UISubmit}
+              onWriteFile={handleWriteFile}
+              onFileClick={handleFileClick}
+              onPermissionResponse={handlePermissionResponse}
+              collapseCodeBlocks={shouldCollapseCodeBlocks}
+              onCodeBlockClick={handleCodeBlockClick}
+            />
+          </ChatContent>
+        ) : (
+          <EmptyState
             input={input}
             setInput={setInput}
-            onSend={handleSend}
-            onStop={stopSending}
-            isLoading={isSending}
+            onSend={(text) => {
+              handleSend([], false, false, text);
+            }}
             providerType={providerType}
             setProviderType={setProviderType}
             model={model}
             setModel={setModel}
             onManageProviders={handleManageProviders}
-            disabled={!projectId}
-            onClearMessages={handleClearMessages}
-            onToggleCanvas={handleToggleCanvas}
-            isCanvasOpen={layoutMode === "chat-canvas"}
-            taskFiles={taskFiles}
-            selectedFileId={selectedFileId}
-            taskFilesExpanded={taskFilesExpanded}
-            onToggleTaskFiles={() => setTaskFilesExpanded(!taskFilesExpanded)}
-            onTaskFileClick={handleTaskFileClick}
-            characters={projectMemory?.characters || []}
-            onSelectCharacter={(character) => {
-              setMentionedCharacters((prev) => {
-                // 避免重复添加
-                if (prev.find((c) => c.id === character.id)) return prev;
-                return [...prev, character];
-              });
+            creationMode={creationMode}
+            onCreationModeChange={setCreationMode}
+            activeTheme={activeTheme}
+            onThemeChange={(theme) => {
+              if (!lockTheme) {
+                setActiveTheme(theme);
+              }
+            }}
+            showThemeTabs={false}
+            onRecommendationClick={(shortLabel, fullPrompt) => {
+              // 直接将推荐提示词放入输入框，不创建项目
+              setInput(fullPrompt);
             }}
           />
-        </>
-      )}
+        )}
+
+        {showChatLayout && (
+          <>
+            <Inputbar
+              input={input}
+              setInput={setInput}
+              onSend={handleSend}
+              onStop={stopSending}
+              isLoading={isSending}
+              providerType={providerType}
+              setProviderType={setProviderType}
+              model={model}
+              setModel={setModel}
+              onManageProviders={handleManageProviders}
+              disabled={!projectId}
+              onClearMessages={handleClearMessages}
+              onToggleCanvas={handleToggleCanvas}
+              isCanvasOpen={layoutMode !== "chat"}
+              taskFiles={taskFiles}
+              selectedFileId={selectedFileId}
+              taskFilesExpanded={taskFilesExpanded}
+              onToggleTaskFiles={() => setTaskFilesExpanded(!taskFilesExpanded)}
+              onTaskFileClick={handleTaskFileClick}
+              characters={projectMemory?.characters || []}
+              onSelectCharacter={(character) => {
+                setMentionedCharacters((prev) => {
+                  // 避免重复添加
+                  if (prev.find((c) => c.id === character.id)) return prev;
+                  return [...prev, character];
+                });
+              }}
+            />
+          </>
+        )}
+      </ChatContainerInner>
     </ChatContainer>
   );
 
@@ -1503,6 +1766,15 @@ export function AgentChatPage({
           onStateChange={setCanvasState}
           onClose={handleCloseCanvas}
           isStreaming={isSending}
+          novelControls={
+            canvasState.type === "novel"
+              ? {
+                  useExternalToolbar: true,
+                  chapterListCollapsed: novelChapterListCollapsed,
+                  onChapterListCollapsedChange: setNovelChapterListCollapsed,
+                }
+              : null
+          }
         />
       );
     }
@@ -1518,6 +1790,7 @@ export function AgentChatPage({
     isSending,
     artifactViewMode,
     artifactPreviewSize,
+    novelChapterListCollapsed,
   ]);
 
   // ========== 渲染逻辑 ==========
@@ -1526,7 +1799,7 @@ export function AgentChatPage({
   // General 主题与其他主题的区别仅在于不显示步骤进度条
   return (
     <PageContainer>
-      {showSidebar && (
+      {showChatPanel && showSidebar && (
         <ChatSidebar
           onNewChat={handleClearMessages}
           topics={topics}
@@ -1541,8 +1814,9 @@ export function AgentChatPage({
         <ChatNavbar
           isRunning={isSending}
           onToggleHistory={handleToggleSidebar}
-          showHistoryToggle={!hideHistoryToggle}
+          showHistoryToggle={!hideHistoryToggle && showChatPanel}
           onToggleFullscreen={() => {}}
+          onBackToProjectManagement={onBackToProjectManagement}
           projectId={projectId ?? null}
           onProjectChange={(newProjectId) => setInternalProjectId(newProjectId)}
           workspaceType={activeTheme}
@@ -1552,6 +1826,16 @@ export function AgentChatPage({
               tab: SettingsTabs.ChatAppearance,
             });
           }}
+          novelCanvasControls={
+            showNovelNavbarControls
+              ? {
+                  chapterListCollapsed: novelChapterListCollapsed,
+                  onToggleChapterList: handleToggleNovelChapterList,
+                  onAddChapter: handleAddNovelChapter,
+                  onCloseCanvas: handleCloseCanvas,
+                }
+              : null
+          }
         />
 
         {/* 同步状态指示器 */}

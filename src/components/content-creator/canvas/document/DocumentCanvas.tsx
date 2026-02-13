@@ -16,8 +16,18 @@ const Container = styled.div`
   display: flex;
   flex-direction: column;
   height: 100%;
+  padding: 16px;
+`;
+
+const InnerContainer = styled.div`
+  display: flex;
+  flex-direction: column;
+  height: 100%;
   background: hsl(var(--background));
-  border-right: 1px solid hsl(var(--border));
+  border-radius: 12px;
+  border: 1px solid hsl(var(--border));
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 `;
 
 const ContentArea = styled.div`
@@ -171,41 +181,43 @@ export const DocumentCanvas: React.FC<DocumentCanvasProps> = memo(
 
     return (
       <Container>
-        <DocumentToolbar
-          currentVersion={currentVersion}
-          versions={state.versions}
-          isEditing={state.isEditing}
-          onVersionChange={handleVersionChange}
-          onEditToggle={handleEditToggle}
-          onSave={handleSave}
-          onCancel={handleCancel}
-          onExport={handleExport}
-          onClose={onClose}
-        />
+        <InnerContainer>
+          <DocumentToolbar
+            currentVersion={currentVersion}
+            versions={state.versions}
+            isEditing={state.isEditing}
+            onVersionChange={handleVersionChange}
+            onEditToggle={handleEditToggle}
+            onSave={handleSave}
+            onCancel={handleCancel}
+            onExport={handleExport}
+            onClose={onClose}
+          />
 
-        <ContentArea>
-          {state.isEditing ? (
-            <NotionEditor
-              content={editingContent}
-              onChange={setEditingContent}
-              onSave={handleSave}
-              onCancel={handleCancel}
-            />
-          ) : (
-            <DocumentRenderer
-              content={state.content}
-              platform={state.platform}
-              isStreaming={isStreaming}
+          <ContentArea>
+            {state.isEditing ? (
+              <NotionEditor
+                content={editingContent}
+                onChange={setEditingContent}
+                onSave={handleSave}
+                onCancel={handleCancel}
+              />
+            ) : (
+              <DocumentRenderer
+                content={state.content}
+                platform={state.platform}
+                isStreaming={isStreaming}
+              />
+            )}
+          </ContentArea>
+
+          {!state.isEditing && (
+            <PlatformTabs
+              currentPlatform={state.platform}
+              onPlatformChange={handlePlatformChange}
             />
           )}
-        </ContentArea>
-
-        {!state.isEditing && (
-          <PlatformTabs
-            currentPlatform={state.platform}
-            onPlatformChange={handlePlatformChange}
-          />
-        )}
+        </InnerContainer>
 
         <Toast $visible={showToast}>{toastMessage}</Toast>
       </Container>

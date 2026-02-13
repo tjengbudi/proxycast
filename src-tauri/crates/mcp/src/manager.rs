@@ -2139,6 +2139,7 @@ mod tests {
                 },
             ]),
             icons: None,
+            meta: None,
         };
 
         // 转换为 McpPromptDefinition
@@ -2180,6 +2181,7 @@ mod tests {
             description: None,
             arguments: None,
             icons: None,
+            meta: None,
         };
 
         // 转换为 McpPromptDefinition
@@ -2327,6 +2329,7 @@ mod tests {
             mime_type: Some("text/plain".to_string()),
             size: Some(1024),
             icons: None,
+            meta: None,
         };
         let resource = raw_resource.no_annotation();
 

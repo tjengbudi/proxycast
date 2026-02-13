@@ -159,6 +159,7 @@ const defaultMocks: Record<string, any> = {
   aster_session_list: () => [],
   aster_session_get: () => ({ id: "mock", messages: [] }),
   aster_agent_confirm: () => ({}),
+  aster_agent_submit_elicitation_response: () => ({}),
 
   // 终端相关
   create_terminal_session: () => ({ uuid: "mock-terminal-uuid" }),

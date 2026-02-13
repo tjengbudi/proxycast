@@ -31,8 +31,18 @@ const Container = styled.div`
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: hsl(var(--muted));
-  border-right: 1px solid hsl(var(--border));
+  padding: 16px;
+`;
+
+const InnerContainer = styled.div`
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: hsl(var(--background));
+  border-radius: 12px;
+  border: 1px solid hsl(var(--border));
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 `;
 
 const MainArea = styled.div`
@@ -335,87 +345,89 @@ export const PosterCanvas: React.FC<PosterCanvasProps> = memo(
 
     return (
       <Container>
-        <PosterToolbar
-          zoom={zoom}
-          showGrid={state.showGrid}
-          canUndo={canUndo}
-          canRedo={canRedo}
-          canvasWidth={currentPage?.width || 1080}
-          canvasHeight={currentPage?.height || 1080}
-          onZoomChange={handleZoomChange}
-          onToggleGrid={handleToggleGrid}
-          onToggleLayerPanel={handleToggleLayerPanel}
-          onUndo={undo}
-          onRedo={redo}
-          onExport={handleExport}
-          onSizeChange={handleSizeChange}
-          onClose={onClose}
-        />
+        <InnerContainer>
+          <PosterToolbar
+            zoom={zoom}
+            showGrid={state.showGrid}
+            canUndo={canUndo}
+            canRedo={canRedo}
+            canvasWidth={currentPage?.width || 1080}
+            canvasHeight={currentPage?.height || 1080}
+            onZoomChange={handleZoomChange}
+            onToggleGrid={handleToggleGrid}
+            onToggleLayerPanel={handleToggleLayerPanel}
+            onUndo={undo}
+            onRedo={redo}
+            onExport={handleExport}
+            onSizeChange={handleSizeChange}
+            onClose={onClose}
+          />
 
-        <MainArea>
-          <CanvasWrapper ref={wrapperRef}>
-            <CanvasContainer $zoom={zoom}>
-              <canvas ref={canvasRef} />
-              <GridOverlay
-                $show={state.showGrid}
-                $width={currentPage?.width || 0}
-                $height={currentPage?.height || 0}
+          <MainArea>
+            <CanvasWrapper ref={wrapperRef}>
+              <CanvasContainer $zoom={zoom}>
+                <canvas ref={canvasRef} />
+                <GridOverlay
+                  $show={state.showGrid}
+                  $width={currentPage?.width || 0}
+                  $height={currentPage?.height || 0}
+                />
+              </CanvasContainer>
+            </CanvasWrapper>
+
+            {/* 图层面板 */}
+            {showLayerPanel && (
+              <LayerPanel
+                layers={layers}
+                selectedIds={selectedIds}
+                onSelect={(ids) => {
+                  // 选择图层对应的元素
+                  if (ids.length === 1) {
+                    selectLayerElement(ids[0]);
+                  } else if (ids.length > 1) {
+                    // 多选时选择第一个
+                    selectLayerElement(ids[0]);
+                  }
+                }}
+                onReorder={reorderLayer}
+                onToggleVisibility={toggleLayerVisibility}
+                onToggleLock={toggleLayerLock}
+                onRename={renameLayer}
+                onClose={handleToggleLayerPanel}
               />
-            </CanvasContainer>
-          </CanvasWrapper>
+            )}
+          </MainArea>
 
-          {/* 图层面板 */}
-          {showLayerPanel && (
-            <LayerPanel
-              layers={layers}
-              selectedIds={selectedIds}
-              onSelect={(ids) => {
-                // 选择图层对应的元素
-                if (ids.length === 1) {
-                  selectLayerElement(ids[0]);
-                } else if (ids.length > 1) {
-                  // 多选时选择第一个
-                  selectLayerElement(ids[0]);
-                }
-              }}
-              onReorder={reorderLayer}
-              onToggleVisibility={toggleLayerVisibility}
-              onToggleLock={toggleLayerLock}
-              onRename={renameLayer}
-              onClose={handleToggleLayerPanel}
-            />
-          )}
-        </MainArea>
+          <PageList
+            pages={state.pages}
+            currentIndex={state.currentPageIndex}
+            onPageSelect={selectPage}
+            onAddPage={addPage}
+            onDeletePage={deletePage}
+            onDuplicatePage={duplicatePage}
+            onReorderPages={reorderPages}
+          />
 
-        <PageList
-          pages={state.pages}
-          currentIndex={state.currentPageIndex}
-          onPageSelect={selectPage}
-          onAddPage={addPage}
-          onDeletePage={deletePage}
-          onDuplicatePage={duplicatePage}
-          onReorderPages={reorderPages}
-        />
+          <ElementToolbar
+            onAddText={handleAddText}
+            onAddImage={handleAddImage}
+            onAddShape={handleAddShape}
+            onSetBackground={handleSetBackground}
+            hasSelection={selectedIds.length > 0}
+            gridSnapEnabled={gridSnapEnabled}
+            onAlign={handleAlign}
+            onToggleGridSnap={toggleGridSnap}
+          />
 
-        <ElementToolbar
-          onAddText={handleAddText}
-          onAddImage={handleAddImage}
-          onAddShape={handleAddShape}
-          onSetBackground={handleSetBackground}
-          hasSelection={selectedIds.length > 0}
-          gridSnapEnabled={gridSnapEnabled}
-          onAlign={handleAlign}
-          onToggleGridSnap={toggleGridSnap}
-        />
-
-        {/* 隐藏的文件输入 */}
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          style={{ display: "none" }}
-          onChange={handleFileChange}
-        />
+          {/* 隐藏的文件输入 */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            style={{ display: "none" }}
+            onChange={handleFileChange}
+          />
+        </InnerContainer>
       </Container>
     );
   },

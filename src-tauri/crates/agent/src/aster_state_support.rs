@@ -5,6 +5,7 @@
 
 use aster::agents::{AgentIdentity, SessionConfig};
 use aster::skills::{global_registry, load_skills_from_directory, SkillSource};
+use aster::tools::ToolRegistrationConfig;
 use proxycast_core::database::DbConnection;
 use proxycast_services::project_context_builder::ProjectContextBuilder;
 
@@ -21,6 +22,15 @@ pub fn create_proxycast_identity() -> AgentIdentity {
             "ProxyCast 是一个 AI 代理服务应用，帮助用户管理和使用各种 AI 模型的凭证。",
         )
         .with_custom_prompt(PROXYCAST_IDENTITY_PROMPT.to_string())
+}
+
+/// 创建 ProxyCast 的工具注册配置
+///
+/// 启用 Ask/LSP 回调，确保 ask/lsp 工具在 Agent 初始化时可用。
+pub fn create_proxycast_tool_config() -> ToolRegistrationConfig {
+    ToolRegistrationConfig::new()
+        .with_ask_callback(crate::create_ask_callback())
+        .with_lsp_callback(crate::create_lsp_callback())
 }
 
 /// 加载 ProxyCast Skills 到 aster-rust 的 global_registry

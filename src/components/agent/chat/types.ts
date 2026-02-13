@@ -63,6 +63,10 @@ export interface ConfirmResponse {
   confirmed: boolean;
   /** 响应内容（用户输入或选择的答案） */
   response?: string;
+  /** 操作类型（用于前端分流） */
+  actionType?: ActionRequired["actionType"];
+  /** 原始用户数据（用于 elicitation） */
+  userData?: unknown;
 }
 
 export interface Message {

@@ -445,6 +445,7 @@ mod tests {
     use super::*;
     use rusqlite::Connection;
     use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
 
     fn setup_test_db() -> DbConnection {
         let conn = Connection::open_in_memory().unwrap();

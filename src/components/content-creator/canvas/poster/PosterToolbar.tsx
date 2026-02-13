@@ -37,6 +37,13 @@ import type { PosterToolbarProps } from "./types";
 import { ZOOM_PRESETS, ZOOM_MIN, ZOOM_MAX } from "./types";
 import { SizeSelector } from "./SizeSelector";
 
+const ThemeLabel = styled.span`
+  font-size: 14px;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  margin-right: 8px;
+`;
+
 const ToolbarContainer = styled.div`
   display: flex;
   align-items: center;
@@ -184,8 +191,10 @@ export const PosterToolbar: React.FC<PosterToolbarProps> = memo(
     return (
       <TooltipProvider>
         <ToolbarContainer>
-          {/* 左侧：缩放控制 */}
+          {/* 左侧：主题标签和缩放控制 */}
           <ToolbarGroup>
+            <ThemeLabel>海报</ThemeLabel>
+            <Divider />
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button

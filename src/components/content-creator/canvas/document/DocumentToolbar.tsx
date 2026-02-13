@@ -174,7 +174,7 @@ export const DocumentToolbar: React.FC<DocumentToolbarProps> = memo(
     return (
       <Container>
         <LeftSection>
-          <Title>📄 文档预览</Title>
+          <Title>文档</Title>
           <VersionSelector
             currentVersion={currentVersion}
             versions={versions}

@@ -6,17 +6,18 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Bot,
   FileText,
   FolderOpen,
   Home,
   PanelLeftClose,
   PanelLeftOpen,
-  PanelRightClose,
-  PanelRightOpen,
   Plus,
   RefreshCw,
   Sparkles,
+  Wrench,
 } from "lucide-react";
+import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -29,6 +30,12 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
   type ContentListItem,
@@ -58,6 +65,7 @@ import type {
 } from "@/types/page";
 import { toast } from "sonner";
 import { AgentChatPage } from "@/components/agent";
+import type { WorkflowProgressSnapshot } from "@/components/agent/chat";
 import { buildHomeAgentParams } from "@/lib/workspace/navigation";
 import { ProjectDetailPage } from "@/components/projects/ProjectDetailPage";
 import type { CreationMode } from "@/components/content-creator/types";
@@ -114,6 +122,23 @@ function parseCreationMode(value: unknown): CreationMode | null {
   return null;
 }
 
+function getWorkflowStepStatusLabel(
+  status: WorkflowProgressSnapshot["steps"][number]["status"],
+): string {
+  switch (status) {
+    case "active":
+      return "进行中";
+    case "completed":
+      return "已完成";
+    case "skipped":
+      return "已跳过";
+    case "error":
+      return "异常";
+    default:
+      return "待开始";
+  }
+}
+
 export function WorkbenchPage({
   onNavigate,
   projectId: initialProjectId,
@@ -122,8 +147,15 @@ export function WorkbenchPage({
   viewMode: initialViewMode,
   resetAt,
 }: WorkbenchPageProps) {
-  const [showLeftSidebar, setShowLeftSidebar] = useState(true);
-  const [showRightSidebar, setShowRightSidebar] = useState(false);
+  const { leftSidebarCollapsed, toggleLeftSidebar, setLeftSidebarCollapsed } =
+    useWorkbenchStore();
+  const [activeRightDrawer, setActiveRightDrawer] = useState<"tools" | null>(
+    null,
+  );
+  const [showChatPanel, setShowChatPanel] = useState(true);
+  const [workflowProgress, setWorkflowProgress] =
+    useState<WorkflowProgressSnapshot | null>(null);
+  const [showWorkflowRail, setShowWorkflowRail] = useState(false);
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>(
     initialViewMode ?? (initialContentId ? "workspace" : "project-management"),
   );
@@ -187,10 +219,16 @@ export function WorkbenchPage({
     );
   }, [contents, contentQuery]);
 
-  const handleEnterWorkspace = useCallback((contentId: string) => {
-    setSelectedContentId(contentId);
-    setWorkspaceMode("workspace");
-  }, []);
+  const handleEnterWorkspace = useCallback(
+    (contentId: string) => {
+      setSelectedContentId(contentId);
+      setWorkspaceMode("workspace");
+      setShowChatPanel(false);
+      setActiveRightDrawer(null);
+      setLeftSidebarCollapsed(true);
+    },
+    [setLeftSidebarCollapsed],
+  );
 
   const handleOpenProjectDetail = useCallback(() => {
     if (!selectedProjectId) {
@@ -198,8 +236,7 @@ export function WorkbenchPage({
     }
 
     setWorkspaceMode("project-detail");
-    setShowLeftSidebar(true);
-    setShowRightSidebar(false);
+    setActiveRightDrawer(null);
   }, [selectedProjectId]);
 
   const loadProjects = useCallback(async () => {
@@ -388,8 +425,12 @@ export function WorkbenchPage({
     setSelectedProjectId(initialProjectId ?? null);
     setSelectedContentId(initialContentId ?? null);
     setWorkspaceMode(nextMode);
-    setShowLeftSidebar(true);
-    setShowRightSidebar(false);
+    const isWorkspaceMode = nextMode === "workspace";
+    setShowChatPanel(!isWorkspaceMode);
+    if (isWorkspaceMode) {
+      setLeftSidebarCollapsed(true);
+    }
+    setActiveRightDrawer(null);
     setContents([]);
     void loadProjects();
   }, [
@@ -398,6 +439,7 @@ export function WorkbenchPage({
     initialViewMode,
     loadProjects,
     resetAt,
+    setLeftSidebarCollapsed,
     theme,
   ]);
 
@@ -512,7 +554,7 @@ export function WorkbenchPage({
     }
 
     void loadContents(selectedProjectId);
-  }, [loadContents, selectedProjectId]);
+  }, [loadContents, selectedProjectId, projects]);
 
   useEffect(() => {
     if (!selectedContentId || contentCreationModes[selectedContentId]) {
@@ -555,235 +597,311 @@ export function WorkbenchPage({
 
   const handleBackToProjectManagement = useCallback(() => {
     setWorkspaceMode("project-management");
-    setShowLeftSidebar(true);
-    setShowRightSidebar(false);
+    setShowChatPanel(true);
+    setActiveRightDrawer(null);
   }, []);
 
+  useEffect(() => {
+    if (workspaceMode !== "workspace") {
+      setWorkflowProgress(null);
+      setShowWorkflowRail(false);
+    }
+  }, [workspaceMode]);
+
+  useEffect(() => {
+    if (!workflowProgress || workflowProgress.steps.length === 0) {
+      setShowWorkflowRail(false);
+    }
+  }, [workflowProgress]);
+
+  // 键盘快捷键: Cmd/Ctrl + B 切换左侧栏
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === "b") {
+        event.preventDefault();
+        toggleLeftSidebar();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [toggleLeftSidebar]);
+
   const shouldRenderLeftSidebar =
-    workspaceMode !== "workspace" || showLeftSidebar;
+    workspaceMode !== "workspace" || !leftSidebarCollapsed;
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      <header className="h-12 border-b px-3 flex items-center gap-2 bg-background">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8"
-          onClick={handleBackHome}
-          title="回到首页"
-        >
-          <Home className="h-4 w-4" />
-        </Button>
-
-        {workspaceMode === "workspace" && (
+      {workspaceMode !== "workspace" && (
+        <header className="h-12 border-b px-3 flex items-center gap-2 bg-background">
           <Button
             variant="ghost"
             size="icon"
             className="h-8 w-8"
-            onClick={() => setShowLeftSidebar((visible) => !visible)}
-            title={showLeftSidebar ? "隐藏左侧栏" : "显示左侧栏"}
+            onClick={handleBackHome}
+            title="回到首页"
           >
-            {showLeftSidebar ? (
-              <PanelLeftClose className="h-4 w-4" />
-            ) : (
-              <PanelLeftOpen className="h-4 w-4" />
-            )}
+            <Home className="h-4 w-4" />
           </Button>
-        )}
 
-        {workspaceMode !== "project-management" && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8"
-            onClick={handleBackToProjectManagement}
-          >
-            项目管理
-          </Button>
-        )}
+          {workspaceMode !== "project-management" && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8"
+              onClick={handleBackToProjectManagement}
+            >
+              {getProjectTypeLabel(theme)}项目管理
+            </Button>
+          )}
 
-        <div className="text-sm font-medium ml-2">
-          {getProjectTypeLabel(theme)}
-        </div>
-        {selectedProject && (
-          <div className="text-xs text-muted-foreground truncate">
-            {selectedProject.name}
+          <div className="text-sm font-medium ml-2">
+            {getProjectTypeLabel(theme)}
           </div>
-        )}
-
-        {workspaceMode === "workspace" && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 ml-auto"
-            onClick={() => setShowRightSidebar((visible) => !visible)}
-            title={showRightSidebar ? "隐藏右侧栏" : "显示右侧栏"}
-          >
-            {showRightSidebar ? (
-              <PanelRightClose className="h-4 w-4" />
-            ) : (
-              <PanelRightOpen className="h-4 w-4" />
-            )}
-          </Button>
-        )}
-      </header>
+          {selectedProject && (
+            <div className="text-xs text-muted-foreground truncate">
+              {selectedProject.name}
+            </div>
+          )}
+        </header>
+      )}
 
       <div className="flex flex-1 min-h-0">
         {shouldRenderLeftSidebar && (
-          <aside className="w-[260px] min-w-[240px] border-r bg-muted/20 flex flex-col">
-            <div className="px-3 py-3 border-b space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <h2 className="text-sm font-semibold">
-                    {getProjectTypeLabel(theme)}
-                  </h2>
-                  <p className="text-xs text-muted-foreground">主题项目管理</p>
-                </div>
-                <div className="flex items-center gap-1">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={() => {
-                      void loadProjects();
-                    }}
-                    disabled={projectsLoading}
-                  >
-                    <RefreshCw
-                      className={cn(
-                        "h-4 w-4",
-                        projectsLoading && "animate-spin",
-                      )}
-                    />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={handleOpenCreateProjectDialog}
-                    title="新建项目"
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
+          <TooltipProvider>
+            <aside
+              className={cn(
+                "border-r bg-muted/20 flex flex-col transition-all duration-300 ease-out",
+                leftSidebarCollapsed ? "w-16" : "w-[260px] min-w-[240px]",
+              )}
+            >
+              {leftSidebarCollapsed ? (
+                // 图标模式 (折叠状态)
+                <div className="flex flex-col items-center py-3 gap-4">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-10 w-10"
+                        onClick={toggleLeftSidebar}
+                      >
+                        <PanelLeftOpen className="h-5 w-5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">
+                      <p>展开侧边栏 (⌘B)</p>
+                    </TooltipContent>
+                  </Tooltip>
 
-              <Input
-                value={projectQuery}
-                onChange={(event) => setProjectQuery(event.target.value)}
-                placeholder="搜索项目..."
-                className="h-8 text-xs"
-              />
-            </div>
+                  <div className="w-full border-t" />
 
-            <div className="flex-1 min-h-0 flex flex-col">
-              <div className="min-h-0 basis-1/2 border-b flex flex-col">
-                <div className="px-3 py-2 text-xs text-muted-foreground">
-                  项目
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-10 w-10"
+                        onClick={toggleLeftSidebar}
+                      >
+                        <FolderOpen className="h-5 w-5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">
+                      <p>项目列表</p>
+                    </TooltipContent>
+                  </Tooltip>
+
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-10 w-10"
+                        onClick={toggleLeftSidebar}
+                      >
+                        <FileText className="h-5 w-5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">
+                      <p>文稿列表</p>
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
-                <ScrollArea className="flex-1">
-                  <div className="p-2 space-y-1">
-                    {filteredProjects.length === 0 ? (
-                      <div className="px-2 py-6 text-xs text-muted-foreground text-center">
-                        该主题下暂无项目
+              ) : (
+                // 完整模式 (展开状态)
+                <>
+                  <div className="px-3 py-3 border-b space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <h2 className="text-sm font-semibold truncate">
+                          {getProjectTypeLabel(theme)}
+                        </h2>
+                        <p className="text-xs text-muted-foreground">
+                          主题项目管理
+                        </p>
                       </div>
-                    ) : (
-                      filteredProjects.map((project) => (
-                        <button
-                          key={project.id}
-                          className={cn(
-                            "w-full text-left rounded-md px-2 py-2 transition-colors",
-                            "hover:bg-accent",
-                            selectedProjectId === project.id &&
-                              "bg-accent text-accent-foreground",
-                          )}
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={toggleLeftSidebar}
+                          title="折叠侧边栏 (⌘B)"
+                        >
+                          <PanelLeftClose className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
                           onClick={() => {
-                            setSelectedProjectId(project.id);
-                            setContentQuery("");
+                            void loadProjects();
                           }}
+                          disabled={projectsLoading}
                         >
-                          <div className="flex items-center gap-2">
-                            <FolderOpen className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-sm font-medium truncate">
-                              {project.name}
-                            </span>
-                          </div>
-                          <div className="mt-1 text-[11px] text-muted-foreground truncate">
-                            {getProjectTypeLabel(project.workspaceType)}
-                          </div>
-                        </button>
-                      ))
-                    )}
-                  </div>
-                </ScrollArea>
-              </div>
-
-              <div className="min-h-0 basis-1/2 flex flex-col">
-                <div className="px-3 py-2 flex items-center gap-2">
-                  <div className="text-xs text-muted-foreground flex-1">
-                    文稿
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
-                    onClick={handleOpenCreateContentDialog}
-                    disabled={!selectedProjectId}
-                    title="新建文稿"
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </div>
-
-                <div className="px-2 pb-2">
-                  <Input
-                    value={contentQuery}
-                    onChange={(event) => setContentQuery(event.target.value)}
-                    placeholder="搜索文稿..."
-                    className="h-8 text-xs"
-                    disabled={!selectedProjectId}
-                  />
-                </div>
-
-                <ScrollArea className="flex-1">
-                  <div className="p-2 space-y-1">
-                    {contentsLoading ? (
-                      <div className="px-2 py-6 text-xs text-muted-foreground text-center">
-                        文稿加载中...
+                          <RefreshCw
+                            className={cn(
+                              "h-4 w-4",
+                              projectsLoading && "animate-spin",
+                            )}
+                          />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={handleOpenCreateProjectDialog}
+                          title="新建项目"
+                        >
+                          <Plus className="h-4 w-4" />
+                        </Button>
                       </div>
-                    ) : filteredContents.length === 0 ? (
-                      <div className="px-2 py-6 text-xs text-muted-foreground text-center">
-                        还没有文稿
+                    </div>
+
+                    <Input
+                      value={projectQuery}
+                      onChange={(event) => setProjectQuery(event.target.value)}
+                      placeholder="搜索项目..."
+                      className="h-8 text-xs"
+                    />
+                  </div>
+
+                  <div className="flex-1 min-h-0 flex flex-col">
+                    <div className="min-h-0 basis-1/2 border-b flex flex-col">
+                      <div className="px-3 py-2 text-xs text-muted-foreground">
+                        项目
                       </div>
-                    ) : (
-                      filteredContents.map((content) => (
-                        <button
-                          key={content.id}
-                          className={cn(
-                            "w-full text-left rounded-md px-2 py-2 transition-colors",
-                            "hover:bg-accent",
-                            selectedContentId === content.id &&
-                              "bg-accent text-accent-foreground",
+                      <ScrollArea className="flex-1">
+                        <div className="p-2 space-y-1">
+                          {filteredProjects.length === 0 ? (
+                            <div className="px-2 py-6 text-xs text-muted-foreground text-center">
+                              该主题下暂无项目
+                            </div>
+                          ) : (
+                            filteredProjects.map((project) => (
+                              <button
+                                key={project.id}
+                                className={cn(
+                                  "w-full text-left rounded-md px-2 py-2 transition-colors",
+                                  "hover:bg-accent",
+                                  selectedProjectId === project.id &&
+                                    "bg-accent text-accent-foreground",
+                                )}
+                                onClick={() => {
+                                  setSelectedProjectId(project.id);
+                                  setContentQuery("");
+                                }}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <FolderOpen className="h-4 w-4 text-muted-foreground" />
+                                  <span className="text-sm font-medium truncate">
+                                    {project.name}
+                                  </span>
+                                </div>
+                                <div className="mt-1 text-[11px] text-muted-foreground truncate">
+                                  {getProjectTypeLabel(project.workspaceType)}
+                                </div>
+                              </button>
+                            ))
                           )}
-                          onClick={() => handleEnterWorkspace(content.id)}
+                        </div>
+                      </ScrollArea>
+                    </div>
+
+                    <div className="min-h-0 basis-1/2 flex flex-col">
+                      <div className="px-3 py-2 flex items-center gap-2">
+                        <div className="text-xs text-muted-foreground flex-1">
+                          文稿
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={handleOpenCreateContentDialog}
+                          disabled={!selectedProjectId}
+                          title="新建文稿"
                         >
-                          <div className="flex items-center gap-2">
-                            <FileText className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-sm font-medium truncate">
-                              {content.title}
-                            </span>
-                          </div>
-                          <div className="mt-1 text-[11px] text-muted-foreground truncate">
-                            {formatRelativeTime(content.updated_at)}
-                          </div>
-                        </button>
-                      ))
-                    )}
+                          <Plus className="h-4 w-4" />
+                        </Button>
+                      </div>
+
+                      <div className="px-2 pb-2">
+                        <Input
+                          value={contentQuery}
+                          onChange={(event) =>
+                            setContentQuery(event.target.value)
+                          }
+                          placeholder="搜索文稿..."
+                          className="h-8 text-xs"
+                          disabled={!selectedProjectId}
+                        />
+                      </div>
+
+                      <ScrollArea className="flex-1">
+                        <div className="p-2 space-y-1">
+                          {contentsLoading ? (
+                            <div className="px-2 py-6 text-xs text-muted-foreground text-center">
+                              文稿加载中...
+                            </div>
+                          ) : filteredContents.length === 0 ? (
+                            <div className="px-2 py-6 text-xs text-muted-foreground text-center">
+                              还没有文稿
+                            </div>
+                          ) : (
+                            filteredContents.map((content) => (
+                              <button
+                                key={content.id}
+                                className={cn(
+                                  "w-full text-left rounded-md px-2 py-2 transition-colors",
+                                  "hover:bg-accent",
+                                  selectedContentId === content.id &&
+                                    "bg-accent text-accent-foreground",
+                                )}
+                                onClick={() => handleEnterWorkspace(content.id)}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <FileText className="h-4 w-4 text-muted-foreground" />
+                                  <span className="text-sm font-medium truncate">
+                                    {content.title}
+                                  </span>
+                                </div>
+                                <div className="mt-1 text-[11px] text-muted-foreground truncate">
+                                  {formatRelativeTime(content.updated_at)}
+                                </div>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      </ScrollArea>
+                    </div>
                   </div>
-                </ScrollArea>
-              </div>
-            </div>
-          </aside>
+                </>
+              )}
+            </aside>
+          </TooltipProvider>
         )}
 
         <main className="flex-1 min-w-0 min-h-0 flex flex-col">
@@ -832,6 +950,9 @@ export function WorkbenchPage({
                 onBack={handleBackToProjectManagement}
                 onNavigateToChat={() => {
                   setWorkspaceMode("workspace");
+                  setShowChatPanel(false);
+                  setActiveRightDrawer(null);
+                  setLeftSidebarCollapsed(true);
                 }}
               />
             )
@@ -872,12 +993,16 @@ export function WorkbenchPage({
                 }
                 lockTheme={true}
                 hideHistoryToggle={true}
+                showChatPanel={showChatPanel}
+                onBackToProjectManagement={handleBackToProjectManagement}
+                hideInlineStepProgress={true}
+                onWorkflowProgressChange={setWorkflowProgress}
               />
             </div>
           )}
         </main>
 
-        {workspaceMode === "workspace" && showRightSidebar && (
+        {workspaceMode === "workspace" && activeRightDrawer === "tools" && (
           <aside className="w-[260px] min-w-[260px] border-l bg-muted/10 p-4 flex flex-col gap-3">
             <h3 className="text-sm font-semibold">主题工具</h3>
             <Button
@@ -900,6 +1025,136 @@ export function WorkbenchPage({
               <FolderOpen className="h-4 w-4 mr-2" />
               项目详情
             </Button>
+          </aside>
+        )}
+
+        {workspaceMode === "workspace" && (
+          <aside className="w-14 min-w-14 border-l bg-background/95 flex flex-col items-center py-3 gap-2">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      "h-9 w-9",
+                      showChatPanel && "bg-accent text-accent-foreground",
+                    )}
+                    onClick={() => setShowChatPanel((visible) => !visible)}
+                    title={showChatPanel ? "隐藏 AI 对话" : "显示 AI 对话"}
+                  >
+                    <Bot className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left">
+                  <p>{showChatPanel ? "隐藏 AI 对话" : "显示 AI 对话"}</p>
+                </TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      "h-9 w-9",
+                      activeRightDrawer === "tools" &&
+                        "bg-accent text-accent-foreground",
+                    )}
+                    onClick={() =>
+                      setActiveRightDrawer((previous) =>
+                        previous === "tools" ? null : "tools",
+                      )
+                    }
+                    title={
+                      activeRightDrawer === "tools"
+                        ? "收起主题工具"
+                        : "展开主题工具"
+                    }
+                  >
+                    <Wrench className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left">
+                  <p>
+                    {activeRightDrawer === "tools"
+                      ? "收起主题工具"
+                      : "展开主题工具"}
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+
+              {workflowProgress && workflowProgress.steps.length > 0 && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={cn(
+                        "h-9 w-9",
+                        showWorkflowRail && "bg-accent text-accent-foreground",
+                      )}
+                      onClick={() =>
+                        setShowWorkflowRail((previous) => !previous)
+                      }
+                      title={showWorkflowRail ? "收起流程步骤" : "展开流程步骤"}
+                    >
+                      <Sparkles className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="left">
+                    <p>{showWorkflowRail ? "收起流程步骤" : "展开流程步骤"}</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+
+              {workflowProgress &&
+                workflowProgress.steps.length > 0 &&
+                showWorkflowRail && (
+                  <div className="overflow-hidden max-h-80 opacity-100 pointer-events-auto transition-all duration-200">
+                    <div className="w-8 border-t my-1" />
+                    <div className="flex flex-col items-center gap-1">
+                      {workflowProgress.steps.map((step, index) => {
+                        const isCurrent =
+                          index === workflowProgress.currentIndex;
+                        const isCompleted =
+                          step.status === "completed" ||
+                          step.status === "skipped";
+                        return (
+                          <Tooltip key={step.id}>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                className={cn(
+                                  "h-7 w-7 rounded-full border text-[11px] font-medium transition-colors",
+                                  isCurrent &&
+                                    "border-primary bg-primary/10 text-primary",
+                                  !isCurrent &&
+                                    isCompleted &&
+                                    "border-primary/40 bg-primary/5 text-primary",
+                                  !isCurrent &&
+                                    !isCompleted &&
+                                    "border-border bg-muted/40 text-muted-foreground",
+                                )}
+                              >
+                                {isCompleted ? "✓" : index + 1}
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="left">
+                              <p>{step.title}</p>
+                              <p className="text-[11px] text-muted-foreground">
+                                {isCurrent
+                                  ? "当前步骤"
+                                  : getWorkflowStepStatusLabel(step.status)}
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+            </TooltipProvider>
           </aside>
         )}
       </div>

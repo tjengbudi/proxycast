@@ -97,8 +97,9 @@ impl AsterAgentState {
             let session_store = Arc::new(ProxyCastSessionStore::new(db.clone()));
             tracing::info!("[AsterAgent] 创建 ProxyCastSessionStore 成功");
 
-            // 创建 Agent 并注入 SessionStore
-            let agent = Agent::new().with_session_store(session_store);
+            // 创建 Agent（启用 Ask/LSP 回调）并注入 SessionStore
+            let tool_config = crate::create_proxycast_tool_config();
+            let agent = Agent::with_tool_config(tool_config).with_session_store(session_store);
 
             // 验证 session_store 是否被正确设置
             let has_store = agent.session_store().is_some();

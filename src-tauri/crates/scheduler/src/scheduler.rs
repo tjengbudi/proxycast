@@ -161,6 +161,7 @@ impl SchedulerTrait for AgentScheduler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::TaskStatus;
     use chrono::Utc;
     use rusqlite::Connection;
     use std::sync::{Arc, Mutex};

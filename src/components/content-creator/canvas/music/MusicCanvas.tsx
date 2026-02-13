@@ -30,8 +30,18 @@ const Container = styled.div`
   display: flex;
   flex-direction: column;
   height: 100%;
+  padding: 16px;
+`;
+
+const InnerContainer = styled.div`
+  display: flex;
+  flex-direction: column;
+  height: 100%;
   background: hsl(var(--background));
-  border-right: 1px solid hsl(var(--border));
+  border-radius: 12px;
+  border: 1px solid hsl(var(--border));
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 `;
 
 const ContentArea = styled.div`
@@ -369,77 +379,85 @@ export const MusicCanvas: React.FC<MusicCanvasProps> = memo(
 
     return (
       <Container>
-        <MusicToolbar
-          spec={state.spec}
-          viewMode={state.viewMode}
-          isPlaying={state.isPlaying}
-          canUndo={false}
-          canRedo={false}
-          onViewModeChange={handleViewModeChange}
-          onPlayToggle={handlePlayToggle}
-          onUndo={handleUndo}
-          onRedo={handleRedo}
-          onExport={handleExport}
-          onClose={onClose}
-        />
+        <InnerContainer>
+          <MusicToolbar
+            spec={state.spec}
+            viewMode={state.viewMode}
+            isPlaying={state.isPlaying}
+            canUndo={false}
+            canRedo={false}
+            onViewModeChange={handleViewModeChange}
+            onPlayToggle={handlePlayToggle}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
+            onExport={handleExport}
+            onClose={onClose}
+          />
 
-        <ContentArea>
-          <MainContent>
-            <EditorPane>
-              <SectionTitle>
-                <div
-                  style={{ display: "flex", alignItems: "center", gap: "8px" }}
-                >
-                  {state.viewMode === "lyrics" && "🎤 歌词"}
-                  {state.viewMode === "numbered" && "🎼 简谱"}
-                  {state.viewMode === "guitar" && "🎸 吉他谱"}
-                  {state.viewMode === "piano" && "🎹 钢琴谱"}
-                  {isStreaming && (
-                    <span style={{ fontSize: 12, color: "hsl(var(--accent))" }}>
-                      生成中...
-                    </span>
-                  )}
-                </div>
-                {state.viewMode === "lyrics" && (
-                  <button
-                    onClick={handleCopyLyrics}
+          <ContentArea>
+            <MainContent>
+              <EditorPane>
+                <SectionTitle>
+                  <div
                     style={{
-                      marginLeft: "auto",
-                      background: "none",
-                      border: "none",
-                      cursor: "pointer",
                       display: "flex",
                       alignItems: "center",
-                      gap: "4px",
-                      fontSize: "12px",
-                      color: isCopied
-                        ? "hsl(var(--accent))"
-                        : "hsl(var(--muted-foreground))",
-                      transition: "color 0.2s",
+                      gap: "8px",
                     }}
-                    title="复制歌词"
                   >
-                    {isCopied ? <Check size={14} /> : <Copy size={14} />}
-                    {isCopied ? "已复制" : "复制"}
-                  </button>
-                )}
-              </SectionTitle>
-              {renderContent()}
-            </EditorPane>
-          </MainContent>
-        </ContentArea>
+                    {state.viewMode === "lyrics" && "🎤 歌词"}
+                    {state.viewMode === "numbered" && "🎼 简谱"}
+                    {state.viewMode === "guitar" && "🎸 吉他谱"}
+                    {state.viewMode === "piano" && "🎹 钢琴谱"}
+                    {isStreaming && (
+                      <span
+                        style={{ fontSize: 12, color: "hsl(var(--accent))" }}
+                      >
+                        生成中...
+                      </span>
+                    )}
+                  </div>
+                  {state.viewMode === "lyrics" && (
+                    <button
+                      onClick={handleCopyLyrics}
+                      style={{
+                        marginLeft: "auto",
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px",
+                        fontSize: "12px",
+                        color: isCopied
+                          ? "hsl(var(--accent))"
+                          : "hsl(var(--muted-foreground))",
+                        transition: "color 0.2s",
+                      }}
+                      title="复制歌词"
+                    >
+                      {isCopied ? <Check size={14} /> : <Copy size={14} />}
+                      {isCopied ? "已复制" : "复制"}
+                    </button>
+                  )}
+                </SectionTitle>
+                {renderContent()}
+              </EditorPane>
+            </MainContent>
+          </ContentArea>
 
-        <StatusBar>
-          <StatusItem>
-            🎵 {state.spec.title} | {state.spec.key} | {state.spec.tempo} BPM
-          </StatusItem>
-          <StatusItem>
-            {stats.totalSections} 段 | {stats.totalLines} 行 |{" "}
-            {stats.totalChars} 字
-          </StatusItem>
-        </StatusBar>
+          <StatusBar>
+            <StatusItem>
+              🎵 {state.spec.title} | {state.spec.key} | {state.spec.tempo} BPM
+            </StatusItem>
+            <StatusItem>
+              {stats.totalSections} 段 | {stats.totalLines} 行 |{" "}
+              {stats.totalChars} 字
+            </StatusItem>
+          </StatusBar>
 
-        <Toast $visible={showToast}>{toastMessage}</Toast>
+          <Toast $visible={showToast}>{toastMessage}</Toast>
+        </InnerContainer>
       </Container>
     );
   },

@@ -22,18 +22,6 @@
       "provider": "openai",
       "description": "最新前沿模型，跨知识、推理和编码的全面提升"
     },
-    "gpt-5.1-codex-max": {
-      "actual": "gpt-5.1-codex-max",
-      "internal_name": "gpt-5.1-codex-max",
-      "provider": "openai",
-      "description": "Codex 优化旗舰模型，深度且快速推理（默认）"
-    },
-    "gpt-5.1-codex-mini": {
-      "actual": "gpt-5.1-codex-mini",
-      "internal_name": "gpt-5.1-codex-mini",
-      "provider": "openai",
-      "description": "Codex 优化轻量模型，更快更便宜但能力稍弱"
-    },
     "gpt-5.2": {
       "actual": "gpt-5.2",
       "internal_name": "gpt-5.2",
